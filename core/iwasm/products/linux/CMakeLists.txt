@@ -75,8 +75,6 @@ add_library (vmlib
 
 add_executable (iwasm main.c ext-lib-export.c)
 
-install (TARGETS iwasm DESTINATION bin)
-
 target_link_libraries (iwasm vmlib -lm -ldl -lpthread)
 
 add_library (libiwasm SHARED
@@ -87,8 +85,6 @@ add_library (libiwasm SHARED
              ${WASM_LIBC_SOURCE}
              ${PLATFORM_SHARED_SOURCE}
              ${MEM_ALLOC_SHARED_SOURCE})
-
-install (TARGETS libiwasm DESTINATION lib)
 
 set_target_properties (libiwasm PROPERTIES OUTPUT_NAME iwasm)
 
