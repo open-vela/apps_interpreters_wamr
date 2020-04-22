@@ -4,14 +4,8 @@
  */
         .text
         .align  2
-#ifndef BH_PLATFORM_DARWIN
-        .globl invokeNative
-        .type  invokeNative, function
-invokeNative:
-#else
-        .globl _invokeNative
-_invokeNative:
-#endif /* end of BH_PLATFORM_DARWIN */
+        .global invokeNative
+        .type   invokeNative,function
 
 /*
  * Arguments passed in:
@@ -21,6 +15,7 @@ _invokeNative:
  * r2 nstacks
  */
 
+invokeNative:
         stmfd   sp!, {r4, r5, r6, r7, lr}
         mov     ip, r0          /* ip = function ptr */
         mov     r4, r1          /* r4 = argv */
@@ -57,7 +52,7 @@ _invokeNative:
         beq     call_func
 
 
-        /* Fill all stack args: reserve stack space and fill one by one */
+        /* Fill all stack args: reserve stack space and fill ony by one */
         add     r4, r4, #64     /* r4 points to stack args */
         bic     sp, sp, #7      /* Ensure stack is 8 byte aligned */
         mov     r7, r5, lsl#2   /* r7 = nstacks * 4 */

@@ -4,14 +4,8 @@
  */
         .text
         .align  2
-#ifndef BH_PLATFORM_DARWIN
-        .globl invokeNative
-        .type  invokeNative, function
-invokeNative:
-#else
-        .globl _invokeNative
-_invokeNative:
-#endif /* end of BH_PLATFORM_DARWIN */
+        .global invokeNative
+        .type   invokeNative,function
 
 /*
  * Arguments passed in:
@@ -21,8 +15,8 @@ _invokeNative:
  * r2 argc
  */
 
+invokeNative:
         stmfd   sp!, {r4, r5, r6, r7, lr}
-        sub     sp, sp, #4      /* make sp 8 byte aligned */
         mov     ip, r0          /* ip = function ptr */
         mov     r4, r1          /* r4 = argv */
         mov     r5, r2          /* r5 = argc */
@@ -54,6 +48,7 @@ _invokeNative:
         mov     r6, r5, lsl#2   /* r6 = argc * 4 */
         add     r6, r6, #7      /* r6 = (r6 + 7) & ~7 */
         bic     r6, r6, #7
+        add     r6, r6, #4      /* +4 because odd(5) registers are in stack */
         sub     sp, sp, r6      /* reserved stack space for left arguments */
         mov     r7, sp
 
@@ -70,6 +65,5 @@ call_func:
         add     sp, sp, r6       /* restore sp */
 
 return:
-        add     sp, sp, #4
         ldmfd   sp!, {r4, r5, r6, r7, lr}
         bx      lr

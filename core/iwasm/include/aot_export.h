@@ -6,7 +6,7 @@
 #ifndef _AOT_EXPORT_H
 #define _AOT_EXPORT_H
 
-#include <stdint.h>
+#include <inttypes.h>
 #include <stdbool.h>
 
 
@@ -39,18 +39,9 @@ typedef struct AOTCompOption{
     char *target_abi;
     char *target_cpu;
     char *cpu_features;
-    bool enable_bulk_memory;
-    bool enable_thread_mgr;
-    bool enable_tail_call;
-    bool enable_simd;
-    bool enable_ref_types;
-    bool enable_aux_stack_check;
-    bool enable_aux_stack_frame;
-    bool is_sgx_platform;
     uint32_t opt_level;
     uint32_t size_level;
     uint32_t output_format;
-    uint32_t bounds_checks;
 } AOTCompOption, *aot_comp_option_t;
 
 aot_comp_context_t
@@ -76,18 +67,6 @@ aot_emit_aot_file(aot_comp_context_t comp_ctx,
 
 void
 aot_destroy_aot_file(uint8_t *aot_file);
-
-bool
-aot_compile_wasm_file_init();
-
-uint8_t*
-aot_compile_wasm_file(const uint8_t *wasm_file_buf, uint32_t wasm_file_size,
-                      uint32_t opt_level, uint32_t size_level,
-                      char *error_buf, uint32_t error_buf_size,
-                      uint32_t *p_aot_file_size);
-
-void
-aot_compile_wasm_file_destroy();
 
 char*
 aot_get_last_error();

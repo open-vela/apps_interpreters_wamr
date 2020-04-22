@@ -72,9 +72,8 @@ K_MUTEX_DEFINE( spi_display_touch_mutex);
 int cnt = 0;
 int touch_read_times = 0;
 int last_pen_interrupt_time = 0;
-
 void xpt2046_pen_gpio_callback(struct device *port, struct gpio_callback *cb,
-                               uint32_t pins)
+        u32_t pins)
 {
     cnt++;
     if ((k_uptime_get_32() - last_pen_interrupt_time) > 500) {

@@ -42,21 +42,19 @@ os_free(void *ptr)
 }
 
 void *
-os_mmap(void *hint, size_t size, int prot, int flags)
+os_mmap(void *hint, unsigned int size, int prot, int flags)
 {
-    if ((uint64)size >= UINT32_MAX)
-        return NULL;
-    return BH_MALLOC((uint32)size);
+    return BH_MALLOC(size);
 }
 
 void
-os_munmap(void *addr, size_t size)
+os_munmap(void *addr, uint32 size)
 {
     return BH_FREE(addr);
 }
 
 int
-os_mprotect(void *addr, size_t size, int prot)
+os_mprotect(void *addr, uint32 size, int prot)
 {
     return 0;
 }

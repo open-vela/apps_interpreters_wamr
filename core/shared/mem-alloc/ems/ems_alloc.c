@@ -6,14 +6,12 @@
 #include "ems_gc_internal.h"
 
 
-static inline bool
-hmu_is_in_heap(void *hmu,
-               gc_uint8 *heap_base_addr,
-               gc_uint8 *heap_end_addr)
+static int
+hmu_is_in_heap(gc_heap_t* heap, hmu_t* hmu)
 {
-    gc_uint8 *addr = (gc_uint8 *)hmu;
-    return (addr >= heap_base_addr && addr < heap_end_addr)
-           ? true : false;
+    return heap && hmu
+           && (gc_uint8*) hmu >= heap->base_addr
+           && (gc_uint8*) hmu < heap->base_addr + heap->current_size;
 }
 
 /**
@@ -25,34 +23,20 @@ hmu_is_in_heap(void *hmu,
  *        won't be touched. The tree will be re-organized so that the order
  *        conditions are still satisified.
  */
-static bool
-remove_tree_node(gc_heap_t *heap, hmu_tree_node_t *p)
+static void
+remove_tree_node(hmu_tree_node_t *p)
 {
-    hmu_tree_node_t *q = NULL, **slot = NULL, *parent;
-    hmu_tree_node_t *root = &heap->kfc_tree_root;
-    gc_uint8 *base_addr = heap->base_addr;
-    gc_uint8 *end_addr = base_addr + heap->current_size;
+    hmu_tree_node_t *q = NULL, **slot = NULL;
 
     bh_assert(p);
-
-    parent = p->parent;
-    if (!parent || p == root /* p can not be the ROOT node */
-        || !hmu_is_in_heap(p, base_addr, end_addr)
-        || (parent != root
-            && !hmu_is_in_heap(parent, base_addr, end_addr))) {
-        goto fail;
-    }
+    bh_assert(p->parent); /* @p can not be the ROOT node*/
 
     /* get the slot which holds pointer to node p*/
     if (p == p->parent->right) {
         slot = &p->parent->right;
-    }
-    else if (p == p->parent->left) {
-        /* p should be a child of its parent*/
+    } else {
+        bh_assert(p == p->parent->left); /* @p should be a child of its parent*/
         slot = &p->parent->left;
-    }
-    else {
-        goto fail;
     }
 
     /**
@@ -67,110 +51,65 @@ remove_tree_node(gc_heap_t *heap, hmu_tree_node_t *p)
     if (!p->left) {
         /* move right child up*/
         *slot = p->right;
-        if (p->right) {
-            if (!hmu_is_in_heap(p->right, base_addr, end_addr)) {
-                goto fail;
-            }
+        if (p->right)
             p->right->parent = p->parent;
-        }
 
         p->left = p->right = p->parent = NULL;
-        return true;
+        return;
     }
 
     if (!p->right) {
         /* move left child up*/
         *slot = p->left;
-        if (!hmu_is_in_heap(p->left, base_addr, end_addr)) {
-            goto fail;
-        }
-        /* p->left can never be NULL unless it is corrupted. */
-        p->left->parent = p->parent;
+        p->left->parent = p->parent; /* p->left can never be NULL.*/
 
         p->left = p->right = p->parent = NULL;
-        return true;
+        return;
     }
 
     /* both left & right exist, find p's predecessor at first*/
     q = p->left;
-    if (!hmu_is_in_heap(q, base_addr, end_addr)) {
-        goto fail;
-    }
-    while (q->right) {
+    while (q->right)
         q = q->right;
-        if (!hmu_is_in_heap(q, base_addr, end_addr)) {
-            goto fail;
-        }
-    }
-
     /* remove from the tree*/
-    if (!remove_tree_node(heap, q))
-        return false;
+    remove_tree_node(q);
 
     *slot = q;
     q->parent = p->parent;
     q->left = p->left;
     q->right = p->right;
-    if (q->left) {
-        if (!hmu_is_in_heap(q->left, base_addr, end_addr)) {
-            goto fail;
-        }
+    if (q->left)
         q->left->parent = q;
-    }
-    if (q->right) {
-        if (!hmu_is_in_heap(q->right, base_addr, end_addr)) {
-            goto fail;
-        }
+    if (q->right)
         q->right->parent = q;
-    }
 
     p->left = p->right = p->parent = NULL;
-
-    return true;
-fail:
-    heap->is_heap_corrupted = true;
-    return false;
 }
 
-static bool
+static void
 unlink_hmu(gc_heap_t *heap, hmu_t *hmu)
 {
-    gc_uint8 *base_addr, *end_addr;
     gc_size_t size;
 
     bh_assert(gci_is_heap_valid(heap));
     bh_assert(hmu && (gc_uint8*) hmu >= heap->base_addr
               && (gc_uint8*) hmu < heap->base_addr + heap->current_size);
+    bh_assert(hmu_get_ut(hmu) == HMU_FC);
 
-    if (hmu_get_ut(hmu) != HMU_FC) {
-        heap->is_heap_corrupted = true;
-        return false;
-    }
-
-    base_addr = heap->base_addr;
-    end_addr = base_addr + heap->current_size;
     size = hmu_get_size(hmu);
 
     if (HMU_IS_FC_NORMAL(size)) {
         uint32 node_idx = size >> 3;
-        hmu_normal_node_t *node_prev = NULL, *node_next;
-        hmu_normal_node_t *node = heap->kfc_normal_list[node_idx].next;
-
+        hmu_normal_node_t *node_prev = &heap->kfc_normal_list[node_idx];
+        hmu_normal_node_t *node =
+            get_hmu_normal_node_next(&heap->kfc_normal_list[node_idx]);
         while (node) {
-            if (!hmu_is_in_heap(node, base_addr, end_addr)) {
-                heap->is_heap_corrupted = true;
-                return false;
-            }
-            node_next = get_hmu_normal_node_next(node);
-            if ((hmu_t*)node == hmu) {
-                if (!node_prev) /* list head */
-                    heap->kfc_normal_list[node_idx].next = node_next;
-                else
-                    set_hmu_normal_node_next(node_prev, node_next);
+            if ((hmu_t*) node == hmu) {
+                set_hmu_normal_node_next(node_prev, get_hmu_normal_node_next(node));
                 break;
             }
             node_prev = node;
-            node = node_next;
+            node = get_hmu_normal_node_next(node);
         }
 
         if (!node) {
@@ -178,10 +117,8 @@ unlink_hmu(gc_heap_t *heap, hmu_t *hmu)
         }
     }
     else {
-        if (!remove_tree_node(heap, (hmu_tree_node_t *)hmu))
-            return false;
+        remove_tree_node((hmu_tree_node_t *) hmu);
     }
-    return true;
 }
 
 static void
@@ -203,44 +140,37 @@ hmu_set_free_size(hmu_t *hmu)
  * @param size should be positive and multiple of 8
  *        hmu with size @size will be added into KFC as a new FC.
  */
-bool
+void
 gci_add_fc(gc_heap_t *heap, hmu_t *hmu, gc_size_t size)
 {
-    gc_uint8 *base_addr, *end_addr;
     hmu_normal_node_t *np = NULL;
     hmu_tree_node_t *root = NULL, *tp = NULL, *node = NULL;
     uint32 node_idx;
 
     bh_assert(gci_is_heap_valid(heap));
-    bh_assert(hmu && (gc_uint8*)hmu >= heap->base_addr
-              && (gc_uint8*)hmu < heap->base_addr + heap->current_size);
+    bh_assert(hmu && (gc_uint8*) hmu >= heap->base_addr
+              && (gc_uint8*) hmu < heap->base_addr + heap->current_size);
     bh_assert(((gc_uint32)(uintptr_t)hmu_to_obj(hmu) & 7) == 0);
     bh_assert(size > 0
-              && ((gc_uint8*)hmu) + size <= heap->base_addr + heap->current_size);
+              && ((gc_uint8*) hmu) + size <= heap->base_addr + heap->current_size);
     bh_assert(!(size & 7));
-
-    base_addr = heap->base_addr;
-    end_addr = base_addr + heap->current_size;
 
     hmu_set_ut(hmu, HMU_FC);
     hmu_set_size(hmu, size);
     hmu_set_free_size(hmu);
 
     if (HMU_IS_FC_NORMAL(size)) {
-        np = (hmu_normal_node_t*)hmu;
-        if (!hmu_is_in_heap(np, base_addr, end_addr)) {
-            heap->is_heap_corrupted = true;
-            return false;
-        }
+        np = (hmu_normal_node_t*) hmu;
 
         node_idx = size >> 3;
-        set_hmu_normal_node_next(np, heap->kfc_normal_list[node_idx].next);
-        heap->kfc_normal_list[node_idx].next = np;
-        return true;
+        set_hmu_normal_node_next(np, get_hmu_normal_node_next
+                                        (&heap->kfc_normal_list[node_idx]));
+        set_hmu_normal_node_next(&heap->kfc_normal_list[node_idx], np);
+        return;
     }
 
     /* big block*/
-    node = (hmu_tree_node_t*)hmu;
+    node = (hmu_tree_node_t*) hmu;
     node->size = size;
     node->left = node->right = node->parent = NULL;
 
@@ -265,12 +195,7 @@ gci_add_fc(gc_heap_t *heap, hmu_t *hmu, gc_size_t size)
             }
             tp = tp->left;
         }
-        if (!hmu_is_in_heap(tp, base_addr, end_addr)) {
-            heap->is_heap_corrupted = true;
-            return false;
-        }
     }
-    return true;
 }
 
 /**
@@ -287,18 +212,13 @@ gci_add_fc(gc_heap_t *heap, hmu_t *hmu, gc_size_t size)
 static hmu_t *
 alloc_hmu(gc_heap_t *heap, gc_size_t size)
 {
-    gc_uint8 *base_addr, *end_addr;
-    hmu_normal_list_t *normal_head = NULL;
-    hmu_normal_node_t *p = NULL;
+    hmu_normal_node_t *node = NULL, *p = NULL;
     uint32 node_idx = 0, init_node_idx = 0;
     hmu_tree_node_t *root = NULL, *tp = NULL, *last_tp = NULL;
     hmu_t *next, *rest;
 
     bh_assert(gci_is_heap_valid(heap));
     bh_assert(size > 0 && !(size & 7));
-
-    base_addr = heap->base_addr;
-    end_addr = base_addr + heap->current_size;
 
     if (size < GC_SMALLEST_SIZE)
         size = GC_SMALLEST_SIZE;
@@ -309,40 +229,31 @@ alloc_hmu(gc_heap_t *heap, gc_size_t size)
         init_node_idx = (size >> 3);
         for (node_idx = init_node_idx; node_idx < HMU_NORMAL_NODE_CNT;
                 node_idx++) {
-            normal_head = heap->kfc_normal_list + node_idx;
-            if (normal_head->next)
+            node = heap->kfc_normal_list + node_idx;
+            if (get_hmu_normal_node_next(node))
                 break;
-            normal_head = NULL;
+            node = NULL;
         }
 
-        /* found in normal list*/
-        if (normal_head) {
+        /* not found in normal list*/
+        if (node) {
             bh_assert(node_idx >= init_node_idx);
 
-            p = normal_head->next;
-            if (!hmu_is_in_heap(p, base_addr, end_addr)) {
-                heap->is_heap_corrupted = true;
-                return NULL;
-            }
-            normal_head->next = get_hmu_normal_node_next(p);
-            if (((gc_int32)(uintptr_t)hmu_to_obj(p) & 7) != 0) {
-                heap->is_heap_corrupted = true;
-                return NULL;
-            }
+            p = get_hmu_normal_node_next(node);
+            set_hmu_normal_node_next(node, get_hmu_normal_node_next(p));
+            bh_assert(((gc_int32)(uintptr_t)hmu_to_obj(p) & 7) == 0);
 
             if ((gc_size_t)node_idx != (uint32)init_node_idx
                 /* with bigger size*/
                 && ((gc_size_t)node_idx << 3) >= size + GC_SMALLEST_SIZE) {
                 rest = (hmu_t*) (((char *) p) + size);
-                if (!gci_add_fc(heap, rest, (node_idx << 3) - size)) {
-                    return NULL;
-                }
+                gci_add_fc(heap, rest, (node_idx << 3) - size);
                 hmu_mark_pinuse(rest);
             }
             else {
                 size = node_idx << 3;
                 next = (hmu_t*) ((char*) p + size);
-                if (hmu_is_in_heap(next, base_addr, end_addr))
+                if (hmu_is_in_heap(heap, next))
                     hmu_mark_pinuse(next);
             }
 
@@ -364,11 +275,6 @@ alloc_hmu(gc_heap_t *heap, gc_size_t size)
     bh_assert(root);
     tp = root->right;
     while (tp) {
-        if (!hmu_is_in_heap(tp, base_addr, end_addr)) {
-            heap->is_heap_corrupted = true;
-            return NULL;
-        }
-
         if (tp->size < size) {
             tp = tp->right;
             continue;
@@ -385,19 +291,17 @@ alloc_hmu(gc_heap_t *heap, gc_size_t size)
         /* alloc in last_p*/
 
         /* remove node last_p from tree*/
-        if (!remove_tree_node(heap, last_tp))
-            return NULL;
+        remove_tree_node(last_tp);
 
         if (last_tp->size >= size + GC_SMALLEST_SIZE) {
-            rest = (hmu_t*)((char*)last_tp + size);
-            if (!gci_add_fc(heap, rest, last_tp->size - size))
-                return NULL;
+            rest = (hmu_t*) ((char*) last_tp + size);
+            gci_add_fc(heap, rest, last_tp->size - size);
             hmu_mark_pinuse(rest);
         }
         else {
             size = last_tp->size;
-            next = (hmu_t*)((char*)last_tp + size);
-            if (hmu_is_in_heap(next, base_addr, end_addr))
+            next = (hmu_t*) ((char*) last_tp + size);
+            if (hmu_is_in_heap(heap, next))
                 hmu_mark_pinuse(next);
         }
 
@@ -405,8 +309,8 @@ alloc_hmu(gc_heap_t *heap, gc_size_t size)
         if ((heap->current_size - heap->total_free_size) > heap->highmark_size)
             heap->highmark_size = heap->current_size - heap->total_free_size;
 
-        hmu_set_size((hmu_t*)last_tp, size);
-        return (hmu_t*)last_tp;
+        hmu_set_size((hmu_t* ) last_tp, size);
+        return (hmu_t*) last_tp;
     }
 
     return NULL;
@@ -461,21 +365,11 @@ gc_alloc_vo_internal(void *vheap, gc_size_t size,
         /* integer overflow */
         return NULL;
 
-    if (heap->is_heap_corrupted) {
-        os_printf("[GC_ERROR]Heap is corrupted, allocate memory failed.\n");
-        return NULL;
-    }
-
     os_mutex_lock(&heap->lock);
 
     hmu = alloc_hmu_ex(heap, tot_size);
     if (!hmu)
         goto finish;
-
-    bh_assert(hmu_get_size(hmu) >= tot_size);
-    /* the total size allocated may be larger than
-       the required size, reset it here */
-    tot_size = hmu_get_size(hmu);
 
     g_total_malloc += tot_size;
 
@@ -490,6 +384,10 @@ gc_alloc_vo_internal(void *vheap, gc_size_t size,
     if (tot_size > tot_size_unaligned)
         /* clear buffer appended by GC_ALIGN_8() */
         memset((uint8*)ret + size, 0, tot_size - tot_size_unaligned);
+
+#if BH_ENABLE_MEMORY_PROFILING != 0
+    os_printf("HEAP.ALLOC: heap: %p, size: %u\n", heap, size);
+#endif
 
 finish:
     os_mutex_unlock(&heap->lock);
@@ -510,7 +408,6 @@ gc_realloc_vo_internal(void *vheap, void *ptr, gc_size_t size,
     gc_object_t ret = (gc_object_t) NULL, obj_old = (gc_object_t)ptr;
     gc_size_t tot_size, tot_size_unaligned, tot_size_old = 0, tot_size_next;
     gc_size_t obj_size, obj_size_old;
-    gc_uint8 *base_addr, *end_addr;
     hmu_type_t ut;
 
     /* hmu header + prefix + obj + suffix */
@@ -521,11 +418,6 @@ gc_realloc_vo_internal(void *vheap, void *ptr, gc_size_t size,
         /* integer overflow */
         return NULL;
 
-    if (heap->is_heap_corrupted) {
-        os_printf("[GC_ERROR]Heap is corrupted, allocate memory failed.\n");
-        return NULL;
-    }
-
     if (obj_old) {
         hmu_old = obj_to_hmu(obj_old);
         tot_size_old = hmu_get_size(hmu_old);
@@ -534,23 +426,17 @@ gc_realloc_vo_internal(void *vheap, void *ptr, gc_size_t size,
             return obj_old;
     }
 
-    base_addr = heap->base_addr;
-    end_addr = base_addr + heap->current_size;
-
     os_mutex_lock(&heap->lock);
 
     if (hmu_old) {
         hmu_next = (hmu_t*)((char *)hmu_old + tot_size_old);
-        if (hmu_is_in_heap(hmu_next, base_addr, end_addr)) {
+        if (hmu_is_in_heap(heap, hmu_next)) {
             ut = hmu_get_ut(hmu_next);
             tot_size_next = hmu_get_size(hmu_next);
             if (ut == HMU_FC
                 && tot_size <= tot_size_old + tot_size_next) {
                 /* current node and next node meets requirement */
-                if (!unlink_hmu(heap, hmu_next)) {
-                    os_mutex_unlock(&heap->lock);
-                    return NULL;
-                }
+                unlink_hmu(heap, hmu_next);
                 hmu_set_size(hmu_old, tot_size);
                 memset((char*)hmu_old + tot_size_old, 0, tot_size - tot_size_old);
 #if BH_ENABLE_GC_VERIFY != 0
@@ -559,10 +445,7 @@ gc_realloc_vo_internal(void *vheap, void *ptr, gc_size_t size,
                 if (tot_size < tot_size_old + tot_size_next) {
                     hmu_next = (hmu_t*)((char*)hmu_old + tot_size);
                     tot_size_next = tot_size_old + tot_size_next - tot_size;
-                    if (!gci_add_fc(heap, hmu_next, tot_size_next)) {
-                        os_mutex_unlock(&heap->lock);
-                        return NULL;
-                    }
+                    gci_add_fc(heap, hmu_next, tot_size_next);
                 }
                 os_mutex_unlock(&heap->lock);
                 return obj_old;
@@ -575,10 +458,6 @@ gc_realloc_vo_internal(void *vheap, void *ptr, gc_size_t size,
     if (!hmu)
         goto finish;
 
-    bh_assert(hmu_get_size(hmu) >= tot_size);
-    /* the total size allocated may be larger than
-       the required size, reset it here */
-    tot_size = hmu_get_size(hmu);
     g_total_malloc += tot_size;
 
     hmu_set_ut(hmu, HMU_VO);
@@ -590,7 +469,12 @@ gc_realloc_vo_internal(void *vheap, void *ptr, gc_size_t size,
 
     ret = hmu_to_obj(hmu);
 
+#if BH_ENABLE_MEMORY_PROFILING != 0
+    os_printf("HEAP.ALLOC: heap: %p, size: %u\n", heap, size);
+#endif
+
 finish:
+    os_mutex_unlock(&heap->lock);
 
     if (ret) {
         obj_size = tot_size - HMU_SIZE - OBJ_PREFIX_SIZE - OBJ_SUFFIX_SIZE;
@@ -599,13 +483,9 @@ finish:
             obj_size_old = tot_size_old - HMU_SIZE
                            - OBJ_PREFIX_SIZE - OBJ_SUFFIX_SIZE;
             bh_memcpy_s(ret, obj_size, obj_old, obj_size_old);
+            gc_free_vo(vheap, obj_old);
         }
     }
-
-    os_mutex_unlock(&heap->lock);
-
-    if (ret && obj_old)
-        gc_free_vo(vheap, obj_old);
 
     return ret;
 }
@@ -635,7 +515,6 @@ gc_free_vo_internal(void *vheap, gc_object_t obj,
 #endif
 {
     gc_heap_t* heap = (gc_heap_t*) vheap;
-    gc_uint8 *base_addr, *end_addr;
     hmu_t *hmu = NULL;
     hmu_t *prev = NULL;
     hmu_t *next = NULL;
@@ -647,21 +526,14 @@ gc_free_vo_internal(void *vheap, gc_object_t obj,
         return GC_SUCCESS;
     }
 
-    if (heap->is_heap_corrupted) {
-        os_printf("[GC_ERROR]Heap is corrupted, free memory failed.\n");
-        return GC_ERROR;
-    }
-
     hmu = obj_to_hmu(obj);
-
-    base_addr = heap->base_addr;
-    end_addr = base_addr + heap->current_size;
 
     os_mutex_lock(&heap->lock);
 
-    if (hmu_is_in_heap(hmu, base_addr, end_addr)) {
+    if ((gc_uint8 *)hmu >= heap->base_addr
+        && (gc_uint8 *)hmu < heap->base_addr + heap->current_size) {
 #if BH_ENABLE_GC_VERIFY != 0
-        hmu_verify(heap, hmu);
+        hmu_verify(hmu);
 #endif
         ut = hmu_get_ut(hmu);
         if (ut == HMU_VO) {
@@ -676,39 +548,32 @@ gc_free_vo_internal(void *vheap, gc_object_t obj,
             g_total_free += size;
 
             heap->total_free_size += size;
+#if BH_ENABLE_MEMORY_PROFILING != 0
+            os_printf("HEAP.FREE, heap: %p, size: %u\n", heap, size);
+#endif
 
             if (!hmu_get_pinuse(hmu)) {
                 prev = (hmu_t*) ((char*) hmu - *((int*) hmu - 1));
 
-                if (hmu_is_in_heap(prev, base_addr, end_addr)
-                    && hmu_get_ut(prev) == HMU_FC) {
+                if (hmu_is_in_heap(heap, prev) && hmu_get_ut(prev) == HMU_FC) {
                     size += hmu_get_size(prev);
                     hmu = prev;
-                    if (!unlink_hmu(heap, prev)) {
-                        ret = GC_ERROR;
-                        goto out;
-                    }
+                    unlink_hmu(heap, prev);
                 }
             }
 
             next = (hmu_t*) ((char*) hmu + size);
-            if (hmu_is_in_heap(next, base_addr, end_addr)) {
+            if (hmu_is_in_heap(heap, next)) {
                 if (hmu_get_ut(next) == HMU_FC) {
                     size += hmu_get_size(next);
-                    if (!unlink_hmu(heap, next)) {
-                        ret = GC_ERROR;
-                        goto out;
-                    }
-                    next = (hmu_t*)((char*) hmu + size);
+                    unlink_hmu(heap, next);
+                    next = (hmu_t*) ((char*) hmu + size);
                 }
             }
 
-            if (!gci_add_fc(heap, hmu, size)) {
-                ret = GC_ERROR;
-                goto out;
-            }
+            gci_add_fc(heap, hmu, size);
 
-            if (hmu_is_in_heap(next, base_addr, end_addr)) {
+            if (hmu_is_in_heap(heap, next)) {
                 hmu_unmark_pinuse(next);
             }
 
@@ -733,12 +598,6 @@ gc_dump_heap_stats(gc_heap_t *heap)
               heap->total_free_size, heap->current_size, heap->highmark_size);
     os_printf("g_total_malloc=%lu, g_total_free=%lu, occupied=%lu\n",
               g_total_malloc, g_total_free, g_total_malloc - g_total_free);
-}
-
-uint32
-gc_get_heap_highmark_size(gc_heap_t *heap)
-{
-    return heap->highmark_size;
 }
 
 void
@@ -766,21 +625,11 @@ gci_dump(gc_heap_t *heap)
         else if (ut == HMU_FC)
             inuse = 'F';
 
-        if (size == 0) {
-            os_printf("[GC_ERROR]Heap is corrupted, heap dump failed.\n");
-            heap->is_heap_corrupted = true;
-            return;
-        }
+        bh_assert(size > 0);
 
         os_printf("#%d %08x %x %x %d %c %d\n",
                   i, (int32)((char*) cur - (char*) heap->base_addr),
                   ut, p, mark, inuse, (int32)hmu_obj_size(size));
-#if BH_ENABLE_GC_VERIFY != 0
-        if (inuse == 'V') {
-            gc_object_prefix_t *prefix = (gc_object_prefix_t *)(cur + 1);
-            os_printf("#%s:%d\n", prefix->file_name, prefix->line_no);
-        }
-#endif
 
         cur = (hmu_t*)((char *)cur + size);
         i++;

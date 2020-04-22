@@ -4,14 +4,8 @@
  */
         .text
         .align  2
-#ifndef BH_PLATFORM_DARWIN
-        .globl invokeNative
-        .type  invokeNative, function
-invokeNative:
-#else
-        .globl _invokeNative
-_invokeNative:
-#endif /* end of BH_PLATFORM_DARWIN */
+        .global invokeNative
+        .type   invokeNative,function
 
 /*
  * Arguments passed in:
@@ -21,6 +15,7 @@ _invokeNative:
  * r2 argc
  */
 
+invokeNative:
         push    {r4, r5, r6, r7}
         push    {lr}
         mov     ip, r0          /* ip = function ptr */

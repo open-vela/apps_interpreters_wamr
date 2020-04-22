@@ -9,12 +9,7 @@
 #include <autoconf.h>
 #include <zephyr.h>
 #include <kernel.h>
-#include <version.h>
-#if KERNEL_VERSION_NUMBER >= 0x020200 /* version 2.2.0 */
 #include <sys/printk.h>
-#else
-#include <misc/printk.h>
-#endif
 #include <inttypes.h>
 #include <stdarg.h>
 #include <ctype.h>
@@ -58,13 +53,7 @@ typedef struct korp_cond {
     os_thread_wait_list thread_wait_list;
 } korp_cond;
 
-#ifndef Z_TIMEOUT_MS
-#define Z_TIMEOUT_MS(ms) ms
-#endif
-
-void abort(void);
-size_t strspn(const char *s, const char *accept);
-size_t strcspn(const char *s, const char *reject);
+#define os_printf printf
 
 /* math functions which are not provided by os */
 double sqrt(double x);
