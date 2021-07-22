@@ -48,7 +48,7 @@ The iwasm supports the following architectures:
 - AArch64 (Cortex-A57 and Cortex-A53 are tested)
 - MIPS
 - XTENSA
-- RISCV64, RISCV32 (interpreter only)
+- RISCV64, RISCV32 (RISC-V LP64 and RISC-V LP64D are tested)
 
 Following platforms are supported. Refer to [WAMR porting guide](./doc/port_wamr.md) for how to port WAMR to a new platform.
 
@@ -132,7 +132,7 @@ The WAMR [samples](./samples) integrate the iwasm VM core, application manager a
 
 Project Technical Steering Committee
 ====================================
-The [WAMR PTSC Charter](./TSC_Charter.md) governs the operations of the project TSC. 
+The [WAMR PTSC Charter](./TSC_Charter.md) governs the operations of the project TSC.
 The current TSC members:
 - [lum1n0us](https://github.com/lum1n0us) - **Liang He**， <liang.he@intel.com>
 - [qinxk-inter](https://github.com/qinxk-inter) - **Xiaokang Qin**， <xiaokang.qxk@antgroup.com>
