@@ -125,14 +125,9 @@
                         "swift"
                     ]
                 },
+                "program": "./resource/debug/bin/lldb-vscode",
                 "windows": {
-                    "program": "./resource/debug/windows/bin/lldb-vscode.exe"
-                },
-                "osx": {
-                    "program": "./resource/debug/osx/bin/lldb-vscode"
-                },
-                "linux": {
-                    "program": "./resource/debug/linux/bin/lldb-vscode"
+                    "program": "./resource/debug/bin/lldb-vscode.exe"
                 },
                 "configurationAttributes": {
                     "attach": {
