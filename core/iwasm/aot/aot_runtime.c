@@ -412,27 +412,18 @@ memory_instantiate(AOTModuleInstance *module_inst, AOTModule *module,
     if (init_page_count == max_page_count && init_page_count == 1) {
         /* If only one page and at most one page, we just append
            the app heap to the end of linear memory, enlarge the
-           num_bytes_per_page, and don't change the page count */
+           num_bytes_per_page, and don't change the page count*/
         heap_offset = num_bytes_per_page;
         num_bytes_per_page += heap_size;
         if (num_bytes_per_page < heap_size) {
             set_error_buf(error_buf, error_buf_size,
-                          "failed to insert app heap into linear memory, "
-                          "try using `--heap_size=0` option");
+                          "memory size must be at most 65536 pages (4GiB)");
             return NULL;
         }
     }
     else if (heap_size > 0) {
-        if (init_page_count == max_page_count && init_page_count == 0) {
-            /* If the memory data size is always 0, we resize it to
-               one page for app heap */
-            num_bytes_per_page = heap_size;
-            heap_offset = 0;
-            inc_page_count = 1;
-        }
-        else if (module->aux_heap_base_global_index != (uint32)-1
-                 && module->aux_heap_base
-                        < num_bytes_per_page * init_page_count) {
+        if (module->aux_heap_base_global_index != (uint32)-1
+            && module->aux_heap_base < num_bytes_per_page * init_page_count) {
             /* Insert app heap before __heap_base */
             aux_heap_base = module->aux_heap_base;
             bytes_of_last_page = aux_heap_base % num_bytes_per_page;
@@ -473,18 +464,13 @@ memory_instantiate(AOTModuleInstance *module_inst, AOTModule *module,
         }
         init_page_count += inc_page_count;
         max_page_count += inc_page_count;
-        if (init_page_count > DEFAULT_MAX_PAGES) {
+        if (init_page_count > 65536) {
             set_error_buf(error_buf, error_buf_size,
-                          "failed to insert app heap into linear memory, "
-                          "try using `--heap_size=0` option");
+                          "memory size must be at most 65536 pages (4GiB)");
             return NULL;
         }
-        else if (init_page_count == DEFAULT_MAX_PAGES) {
-            num_bytes_per_page = UINT32_MAX;
-            init_page_count = max_page_count = 1;
-        }
-        if (max_page_count > DEFAULT_MAX_PAGES)
-            max_page_count = DEFAULT_MAX_PAGES;
+        if (max_page_count > 65536)
+            max_page_count = 65536;
     }
 
     LOG_VERBOSE("Memory instantiate:");
@@ -501,7 +487,6 @@ memory_instantiate(AOTModuleInstance *module_inst, AOTModule *module,
         total_size = (uint64)num_bytes_per_page * max_page_count;
     }
 #endif
-    bh_assert(total_size <= UINT32_MAX);
 
 #ifndef OS_ENABLE_HW_BOUND_CHECK
     /* Allocate memory */
@@ -517,8 +502,9 @@ memory_instantiate(AOTModuleInstance *module_inst, AOTModule *module,
      * both i and memarg.offset are u32 in range 0 to 4G
      * so the range of ea is 0 to 8G
      */
-    if (!(p = mapped_mem =
-              os_mmap(NULL, map_size, MMAP_PROT_NONE, MMAP_MAP_NONE))) {
+    if (total_size >= UINT32_MAX
+        || !(p = mapped_mem =
+                 os_mmap(NULL, map_size, MMAP_PROT_NONE, MMAP_MAP_NONE))) {
         set_error_buf(error_buf, error_buf_size, "mmap memory failed");
         return NULL;
     }
@@ -543,18 +529,15 @@ memory_instantiate(AOTModuleInstance *module_inst, AOTModule *module,
      * again here */
 #endif /* end of OS_ENABLE_HW_BOUND_CHECK */
 
-    if (total_size > UINT32_MAX)
-        total_size = UINT32_MAX;
-
     memory_inst->module_type = Wasm_Module_AoT;
     memory_inst->num_bytes_per_page = num_bytes_per_page;
     memory_inst->cur_page_count = init_page_count;
     memory_inst->max_page_count = max_page_count;
-    memory_inst->memory_data_size = (uint32)total_size;
 
     /* Init memory info */
     memory_inst->memory_data.ptr = p;
     memory_inst->memory_data_end.ptr = p + (uint32)total_size;
+    memory_inst->memory_data_size = (uint32)total_size;
 
     /* Initialize heap info */
     memory_inst->heap_data.ptr = p + heap_offset;
@@ -578,19 +561,21 @@ memory_instantiate(AOTModuleInstance *module_inst, AOTModule *module,
     }
 
     if (total_size > 0) {
-#if UINTPTR_MAX == UINT64_MAX
-        memory_inst->mem_bound_check_1byte.u64 = total_size - 1;
-        memory_inst->mem_bound_check_2bytes.u64 = total_size - 2;
-        memory_inst->mem_bound_check_4bytes.u64 = total_size - 4;
-        memory_inst->mem_bound_check_8bytes.u64 = total_size - 8;
-        memory_inst->mem_bound_check_16bytes.u64 = total_size - 16;
-#else
-        memory_inst->mem_bound_check_1byte.u32[0] = (uint32)total_size - 1;
-        memory_inst->mem_bound_check_2bytes.u32[0] = (uint32)total_size - 2;
-        memory_inst->mem_bound_check_4bytes.u32[0] = (uint32)total_size - 4;
-        memory_inst->mem_bound_check_8bytes.u32[0] = (uint32)total_size - 8;
-        memory_inst->mem_bound_check_16bytes.u32[0] = (uint32)total_size - 16;
-#endif
+        if (sizeof(uintptr_t) == sizeof(uint64)) {
+            memory_inst->mem_bound_check_1byte.u64 = total_size - 1;
+            memory_inst->mem_bound_check_2bytes.u64 = total_size - 2;
+            memory_inst->mem_bound_check_4bytes.u64 = total_size - 4;
+            memory_inst->mem_bound_check_8bytes.u64 = total_size - 8;
+            memory_inst->mem_bound_check_16bytes.u64 = total_size - 16;
+        }
+        else {
+            memory_inst->mem_bound_check_1byte.u32[0] = (uint32)total_size - 1;
+            memory_inst->mem_bound_check_2bytes.u32[0] = (uint32)total_size - 2;
+            memory_inst->mem_bound_check_4bytes.u32[0] = (uint32)total_size - 4;
+            memory_inst->mem_bound_check_8bytes.u32[0] = (uint32)total_size - 8;
+            memory_inst->mem_bound_check_16bytes.u32[0] =
+                (uint32)total_size - 16;
+        }
     }
 
 #if WASM_ENABLE_SHARED_MEMORY != 0
@@ -1485,8 +1470,7 @@ aot_call_function(WASMExecEnv *exec_env, AOTFunctionInstance *function,
 
 #if (WASM_ENABLE_DUMP_CALL_STACK != 0) || (WASM_ENABLE_PERF_PROFILING != 0)
         if (!aot_alloc_frame(exec_env, function->func_index)) {
-            if (argv1 != argv1_buf)
-                wasm_runtime_free(argv1);
+            wasm_runtime_free(argv1);
             return false;
         }
 #endif
@@ -1495,6 +1479,9 @@ aot_call_function(WASMExecEnv *exec_env, AOTFunctionInstance *function,
                                      func_type, NULL, NULL, argv1, argc, argv);
 
         if (!ret || aot_get_exception(module_inst)) {
+            if (argv1 != argv1_buf)
+                wasm_runtime_free(argv1);
+
             if (clear_wasi_proc_exit_exception(module_inst))
                 ret = true;
             else
@@ -1512,11 +1499,8 @@ aot_call_function(WASMExecEnv *exec_env, AOTFunctionInstance *function,
 #if (WASM_ENABLE_DUMP_CALL_STACK != 0) || (WASM_ENABLE_PERF_PROFILING != 0)
         aot_free_frame(exec_env);
 #endif
-        if (!ret) {
-            if (argv1 != argv1_buf)
-                wasm_runtime_free(argv1);
+        if (!ret)
             return ret;
-        }
 
         /* Get extra result values */
         switch (func_type->types[func_type->param_count]) {
@@ -1545,9 +1529,9 @@ aot_call_function(WASMExecEnv *exec_env, AOTFunctionInstance *function,
             argv1 + argc + sizeof(void *) / sizeof(uint32) * ext_ret_count;
         bh_memcpy_s(argv_ret, sizeof(uint32) * cell_num, ext_rets,
                     sizeof(uint32) * cell_num);
-
         if (argv1 != argv1_buf)
             wasm_runtime_free(argv1);
+
         return true;
     }
     else {
@@ -2050,29 +2034,26 @@ aot_get_native_addr_range(AOTModuleInstance *module_inst, uint8 *native_ptr,
 bool
 aot_enlarge_memory(AOTModuleInstance *module_inst, uint32 inc_page_count)
 {
-    AOTMemoryInstance *memory = aot_get_default_memory(module_inst);
-    uint8 *memory_data_old, *memory_data_new, *heap_data_old;
-    uint32 num_bytes_per_page, heap_size, total_size_old;
-    uint32 cur_page_count, max_page_count, total_page_count;
-    uint64 total_size_new;
+    AOTMemoryInstance *memory_inst = aot_get_default_memory(module_inst);
+    uint32 num_bytes_per_page, cur_page_count, max_page_count;
+    uint32 total_page_count, total_size_old, heap_size;
+    uint64 total_size;
+    uint8 *memory_data_old, *heap_data_old, *memory_data, *heap_data;
     bool ret = true;
 
-    if (!memory)
+    if (!memory_inst)
         return false;
 
-    heap_data_old = (uint8 *)memory->heap_data.ptr;
-    heap_size = (uint32)((uint8 *)memory->heap_data_end.ptr
-                         - (uint8 *)memory->heap_data.ptr);
-
-    memory_data_old = (uint8 *)memory->memory_data.ptr;
-    total_size_old =
-        (uint32)((uint8 *)memory->memory_data_end.ptr - memory_data_old);
-
-    num_bytes_per_page = memory->num_bytes_per_page;
-    cur_page_count = memory->cur_page_count;
-    max_page_count = memory->max_page_count;
-    total_page_count = inc_page_count + cur_page_count;
-    total_size_new = num_bytes_per_page * (uint64)total_page_count;
+    num_bytes_per_page = memory_inst->num_bytes_per_page;
+    cur_page_count = memory_inst->cur_page_count;
+    max_page_count = memory_inst->max_page_count;
+    total_page_count = cur_page_count + inc_page_count;
+    total_size_old = memory_inst->memory_data_size;
+    total_size = (uint64)num_bytes_per_page * total_page_count;
+    heap_size = (uint32)((uint8 *)memory_inst->heap_data_end.ptr
+                         - (uint8 *)memory_inst->heap_data.ptr);
+    memory_data_old = (uint8 *)memory_inst->memory_data.ptr;
+    heap_data_old = (uint8 *)memory_inst->heap_data.ptr;
 
     if (inc_page_count <= 0)
         /* No need to enlarge memory */
@@ -2083,103 +2064,94 @@ aot_enlarge_memory(AOTModuleInstance *module_inst, uint32 inc_page_count)
         return false;
     }
 
-    bh_assert(total_size_new <= 4 * (uint64)BH_GB);
-    if (total_size_new > UINT32_MAX) {
-        /* Resize to 1 page with size 4G-1 */
-        num_bytes_per_page = UINT32_MAX;
-        total_page_count = max_page_count = 1;
-        total_size_new = UINT32_MAX;
+    if (total_size >= UINT32_MAX) {
+        return false;
     }
 
 #if WASM_ENABLE_SHARED_MEMORY != 0
-    if (memory->is_shared) {
-        memory->num_bytes_per_page = UINT32_MAX;
-        memory->cur_page_count = total_page_count;
-        memory->max_page_count = max_page_count;
-        memory->memory_data_size = (uint32)total_size_new;
+    if (memory_inst->is_shared) {
+        /* For shared memory, we have reserved the maximum spaces during
+            instantiate, only change the cur_page_count here */
+        memory_inst->cur_page_count = total_page_count;
         return true;
     }
 #endif
 
     if (heap_size > 0) {
-        if (mem_allocator_is_heap_corrupted(memory->heap_handle.ptr)) {
+        if (mem_allocator_is_heap_corrupted(memory_inst->heap_handle.ptr)) {
             wasm_runtime_show_app_heap_corrupted_prompt();
             return false;
         }
     }
 
-    if (!(memory_data_new =
-              wasm_runtime_realloc(memory_data_old, (uint32)total_size_new))) {
-        if (!(memory_data_new = wasm_runtime_malloc((uint32)total_size_new))) {
+    if (!(memory_data =
+              wasm_runtime_realloc(memory_data_old, (uint32)total_size))) {
+        if (!(memory_data = wasm_runtime_malloc((uint32)total_size))) {
             return false;
         }
         if (memory_data_old) {
-            bh_memcpy_s(memory_data_new, (uint32)total_size_new,
-                        memory_data_old, total_size_old);
+            bh_memcpy_s(memory_data, (uint32)total_size, memory_data_old,
+                        total_size_old);
             wasm_runtime_free(memory_data_old);
         }
     }
 
-    memset(memory_data_new + total_size_old, 0,
-           (uint32)total_size_new - total_size_old);
+    memset(memory_data + total_size_old, 0,
+           (uint32)total_size - total_size_old);
+
+    memory_inst->cur_page_count = total_page_count;
+    memory_inst->memory_data_size = (uint32)total_size;
+    memory_inst->memory_data.ptr = memory_data;
+    memory_inst->memory_data_end.ptr = memory_data + total_size;
 
     if (heap_size > 0) {
-        if (mem_allocator_migrate(memory->heap_handle.ptr,
+        if (mem_allocator_migrate(memory_inst->heap_handle.ptr,
                                   (char *)heap_data_old
-                                      + (memory_data_new - memory_data_old),
-                                  heap_size)
-            != 0) {
+                                      + (memory_data - memory_data_old),
+                                  heap_size)) {
             /* Don't return here as memory->memory_data is obsolete and
                must be updated to be correctly used later. */
             ret = false;
         }
     }
 
-    memory->heap_data.ptr = memory_data_new + (heap_data_old - memory_data_old);
-    memory->heap_data_end.ptr = (uint8 *)memory->heap_data.ptr + heap_size;
+    heap_data = memory_data + (heap_data_old - memory_data_old);
+    memory_inst->heap_data.ptr = heap_data;
+    memory_inst->heap_data_end.ptr = heap_data + heap_size;
 
-    memory->num_bytes_per_page = num_bytes_per_page;
-    memory->cur_page_count = total_page_count;
-    memory->max_page_count = max_page_count;
-
-    memory->memory_data.ptr = memory_data_new;
-    memory->memory_data_end.ptr = memory_data_new + (uint32)total_size_new;
-    memory->memory_data_size = (uint32)total_size_new;
-
-#if UINTPTR_MAX == UINT64_MAX
-    memory->mem_bound_check_1byte.u64 = total_size_new - 1;
-    memory->mem_bound_check_2bytes.u64 = total_size_new - 2;
-    memory->mem_bound_check_4bytes.u64 = total_size_new - 4;
-    memory->mem_bound_check_8bytes.u64 = total_size_new - 8;
-    memory->mem_bound_check_16bytes.u64 = total_size_new - 16;
-#else
-    memory->mem_bound_check_1byte.u32[0] = (uint32)total_size_new - 1;
-    memory->mem_bound_check_2bytes.u32[0] = (uint32)total_size_new - 2;
-    memory->mem_bound_check_4bytes.u32[0] = (uint32)total_size_new - 4;
-    memory->mem_bound_check_8bytes.u32[0] = (uint32)total_size_new - 8;
-    memory->mem_bound_check_16bytes.u32[0] = (uint32)total_size_new - 16;
-#endif
-
+    if (sizeof(uintptr_t) == sizeof(uint64)) {
+        memory_inst->mem_bound_check_1byte.u64 = total_size - 1;
+        memory_inst->mem_bound_check_2bytes.u64 = total_size - 2;
+        memory_inst->mem_bound_check_4bytes.u64 = total_size - 4;
+        memory_inst->mem_bound_check_8bytes.u64 = total_size - 8;
+        memory_inst->mem_bound_check_16bytes.u64 = total_size - 16;
+    }
+    else {
+        memory_inst->mem_bound_check_1byte.u32[0] = (uint32)total_size - 1;
+        memory_inst->mem_bound_check_2bytes.u32[0] = (uint32)total_size - 2;
+        memory_inst->mem_bound_check_4bytes.u32[0] = (uint32)total_size - 4;
+        memory_inst->mem_bound_check_8bytes.u32[0] = (uint32)total_size - 8;
+        memory_inst->mem_bound_check_16bytes.u32[0] = (uint32)total_size - 16;
+    }
     return ret;
 }
 #else /* else of OS_ENABLE_HW_BOUND_CHECK */
 bool
 aot_enlarge_memory(AOTModuleInstance *module_inst, uint32 inc_page_count)
 {
-    AOTMemoryInstance *memory = aot_get_default_memory(module_inst);
-    uint32 num_bytes_per_page, total_size_old;
-    uint32 cur_page_count, max_page_count, total_page_count;
-    uint64 total_size_new;
+    AOTMemoryInstance *memory_inst = aot_get_default_memory(module_inst);
+    uint32 num_bytes_per_page, cur_page_count, max_page_count;
+    uint32 total_page_count;
+    uint64 total_size;
 
-    if (!memory)
+    if (!memory_inst)
         return false;
 
-    num_bytes_per_page = memory->num_bytes_per_page;
-    cur_page_count = memory->cur_page_count;
-    max_page_count = memory->max_page_count;
-    total_size_old = num_bytes_per_page * cur_page_count;
-    total_page_count = inc_page_count + cur_page_count;
-    total_size_new = num_bytes_per_page * (uint64)total_page_count;
+    num_bytes_per_page = memory_inst->num_bytes_per_page;
+    cur_page_count = memory_inst->cur_page_count;
+    max_page_count = memory_inst->max_page_count;
+    total_page_count = cur_page_count + inc_page_count;
+    total_size = (uint64)num_bytes_per_page * total_page_count;
 
     if (inc_page_count <= 0)
         /* No need to enlarge memory */
@@ -2190,29 +2162,21 @@ aot_enlarge_memory(AOTModuleInstance *module_inst, uint32 inc_page_count)
         return false;
     }
 
-    bh_assert(total_size_new <= 4 * (uint64)BH_GB);
-    if (total_size_new > UINT32_MAX) {
-        /* Resize to 1 page with size 4G-1 */
-        num_bytes_per_page = UINT32_MAX;
-        total_page_count = max_page_count = 1;
-        total_size_new = UINT32_MAX;
-    }
-
 #ifdef BH_PLATFORM_WINDOWS
-    if (!os_mem_commit(memory->memory_data_end.ptr,
-                       (uint32)total_size_new - total_size_old,
+    if (!os_mem_commit(memory_inst->memory_data_end.ptr,
+                       num_bytes_per_page * inc_page_count,
                        MMAP_PROT_READ | MMAP_PROT_WRITE)) {
         return false;
     }
 #endif
 
-    if (os_mprotect(memory->memory_data_end.ptr,
-                    (uint32)total_size_new - total_size_old,
+    if (os_mprotect(memory_inst->memory_data_end.ptr,
+                    num_bytes_per_page * inc_page_count,
                     MMAP_PROT_READ | MMAP_PROT_WRITE)
         != 0) {
 #ifdef BH_PLATFORM_WINDOWS
-        os_mem_decommit(memory->memory_data_end.ptr,
-                        (uint32)total_size_new - total_size_old);
+        os_mem_decommit(memory_inst->memory_data_end.ptr,
+                        num_bytes_per_page * inc_page_count);
 #endif
         return false;
     }
@@ -2220,19 +2184,25 @@ aot_enlarge_memory(AOTModuleInstance *module_inst, uint32 inc_page_count)
     /* The increased pages are filled with zero by the OS when os_mmap,
        no need to memset it again here */
 
-    memory->num_bytes_per_page = num_bytes_per_page;
-    memory->cur_page_count = total_page_count;
-    memory->max_page_count = max_page_count;
-    memory->memory_data_size = (uint32)total_size_new;
-    memory->memory_data_end.ptr =
-        (uint8 *)memory->memory_data.ptr + (uint32)total_size_new;
+    memory_inst->cur_page_count = total_page_count;
+    memory_inst->memory_data_size = (uint32)total_size;
+    memory_inst->memory_data_end.ptr =
+        (uint8 *)memory_inst->memory_data.ptr + (uint32)total_size;
 
-    memory->mem_bound_check_1byte.u64 = total_size_new - 1;
-    memory->mem_bound_check_2bytes.u64 = total_size_new - 2;
-    memory->mem_bound_check_4bytes.u64 = total_size_new - 4;
-    memory->mem_bound_check_8bytes.u64 = total_size_new - 8;
-    memory->mem_bound_check_16bytes.u64 = total_size_new - 16;
-
+    if (sizeof(uintptr_t) == sizeof(uint64)) {
+        memory_inst->mem_bound_check_1byte.u64 = total_size - 1;
+        memory_inst->mem_bound_check_2bytes.u64 = total_size - 2;
+        memory_inst->mem_bound_check_4bytes.u64 = total_size - 4;
+        memory_inst->mem_bound_check_8bytes.u64 = total_size - 8;
+        memory_inst->mem_bound_check_16bytes.u64 = total_size - 16;
+    }
+    else {
+        memory_inst->mem_bound_check_1byte.u32[0] = (uint32)total_size - 1;
+        memory_inst->mem_bound_check_2bytes.u32[0] = (uint32)total_size - 2;
+        memory_inst->mem_bound_check_4bytes.u32[0] = (uint32)total_size - 4;
+        memory_inst->mem_bound_check_8bytes.u32[0] = (uint32)total_size - 8;
+        memory_inst->mem_bound_check_16bytes.u32[0] = (uint32)total_size - 16;
+    }
     return true;
 }
 #endif /* end of OS_ENABLE_HW_BOUND_CHECK */

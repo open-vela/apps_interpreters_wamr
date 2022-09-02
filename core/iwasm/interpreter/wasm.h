@@ -29,7 +29,6 @@ extern "C" {
 #define VALUE_TYPE_ANY 0x42
 
 #define DEFAULT_NUM_BYTES_PER_PAGE 65536
-#define DEFAULT_MAX_PAGES 65536
 
 #define NULL_REF (0xFFFFFFFF)
 
