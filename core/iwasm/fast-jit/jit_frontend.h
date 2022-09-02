@@ -188,13 +188,7 @@ JitReg
 get_module_reg(JitFrame *frame);
 
 JitReg
-get_import_func_ptrs_reg(JitFrame *frame);
-
-JitReg
 get_fast_jit_func_ptrs_reg(JitFrame *frame);
-
-JitReg
-get_func_type_indexes_reg(JitFrame *frame);
 
 JitReg
 get_global_data_reg(JitFrame *frame);
@@ -513,8 +507,6 @@ set_local_f64(JitFrame *frame, int n, JitReg val)
 
 #define PUSH(jit_value, value_type)                        \
     do {                                                   \
-        if (!jit_value)                                    \
-            goto fail;                                     \
         if (!jit_cc_push_value(cc, value_type, jit_value)) \
             goto fail;                                     \
     } while (0)
