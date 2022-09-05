@@ -161,31 +161,6 @@ convert_errno(int error)
     return errors[error];
 }
 
-static bool
-ns_lookup_list_search(char **list, const char *host)
-{
-    size_t host_len = strlen(host), suffix_len;
-
-    while (*list) {
-        if (*list[0] == '*') {
-            suffix_len = strlen(*list) - 1;
-            if (suffix_len <= host_len
-                && strncmp(host + host_len - suffix_len, *list + 1, suffix_len)
-                       == 0) {
-                return true;
-            }
-        }
-        else {
-            if (strcmp(*list, host) == 0) {
-                return true;
-            }
-        }
-        list++;
-    }
-
-    return false;
-}
-
 // Converts a POSIX timespec to a CloudABI timestamp.
 static __wasi_timestamp_t
 convert_timespec(const struct timespec *ts)
@@ -222,37 +197,6 @@ convert_clockid(__wasi_clockid_t in, clockid_t *out)
         default:
             return false;
     }
-}
-
-// Converts an IPv4 binary address object to WASI address.
-static void
-ipv4_addr_to_wasi_addr(uint32_t addr, __wasi_ip_port_t port, __wasi_addr_t *out)
-{
-    addr = ntohl(addr);
-
-    out->kind = IPv4;
-    out->addr.ip4.port = port;
-    out->addr.ip4.addr.n0 = (addr & 0xFF000000) >> 24;
-    out->addr.ip4.addr.n1 = (addr & 0x00FF0000) >> 16;
-    out->addr.ip4.addr.n2 = (addr & 0x0000FF00) >> 8;
-    out->addr.ip4.addr.n3 = (addr & 0x000000FF);
-}
-
-// Converts an IPv6 binary address object to WASI address object.
-static void
-ipv6_addr_to_wasi_addr(uint16_t addr[8], __wasi_ip_port_t port,
-                       __wasi_addr_t *out)
-{
-    out->kind = IPv6;
-    out->addr.ip6.port = port;
-    out->addr.ip6.addr.n0 = addr[0];
-    out->addr.ip6.addr.n1 = addr[1];
-    out->addr.ip6.addr.n2 = addr[2];
-    out->addr.ip6.addr.n3 = addr[3];
-    out->addr.ip6.addr.h0 = addr[4];
-    out->addr.ip6.addr.h1 = addr[5];
-    out->addr.ip6.addr.h2 = addr[6];
-    out->addr.ip6.addr.h3 = addr[7];
 }
 
 __wasi_errno_t
@@ -2908,34 +2852,16 @@ wasi_ssp_sock_addr_local(
 #if !defined(WASMTIME_SSP_STATIC_CURFDS)
     struct fd_table *curfds,
 #endif
-    __wasi_fd_t fd, __wasi_addr_t *addr)
+    __wasi_fd_t fd, uint8 *buf, __wasi_size_t buf_len)
 {
     struct fd_object *fo;
-    uint8 buf[16];
-    __wasi_ip_port_t port;
-    uint8 is_ipv4;
-    int ret;
-
     __wasi_errno_t error =
         fd_object_get(curfds, &fo, fd, __WASI_RIGHT_SOCK_ADDR_LOCAL, 0);
     if (error != __WASI_ESUCCESS)
         return error;
 
-    ret = os_socket_addr_local(fd_number(fo), buf, sizeof(buf) / sizeof(buf[0]),
-                               &port, &is_ipv4);
     fd_object_release(fo);
-    if (ret != BHT_OK) {
-        return convert_errno(errno);
-    }
-
-    if (is_ipv4) {
-        ipv4_addr_to_wasi_addr(*(uint32_t *)buf, port, addr);
-    }
-    else {
-        ipv6_addr_to_wasi_addr((uint16 *)buf, port, addr);
-    }
-
-    return __WASI_ESUCCESS;
+    return __WASI_ENOSYS;
 }
 
 __wasi_errno_t
@@ -2943,63 +2869,16 @@ wasi_ssp_sock_addr_remote(
 #if !defined(WASMTIME_SSP_STATIC_CURFDS)
     struct fd_table *curfds,
 #endif
-    __wasi_fd_t fd, __wasi_addr_t *addr)
+    __wasi_fd_t fd, uint8 *buf, __wasi_size_t buf_len)
 {
     struct fd_object *fo;
-    uint8 buf[16];
-    __wasi_ip_port_t port;
-    uint8 is_ipv4;
-    int ret;
-
     __wasi_errno_t error =
-        fd_object_get(curfds, &fo, fd, __WASI_RIGHT_SOCK_ADDR_LOCAL, 0);
+        fd_object_get(curfds, &fo, fd, __WASI_RIGHT_SOCK_ADDR_REMOTE, 0);
     if (error != __WASI_ESUCCESS)
         return error;
 
-    ret = os_socket_addr_remote(fd_number(fo), buf,
-                                sizeof(buf) / sizeof(buf[0]), &port, &is_ipv4);
     fd_object_release(fo);
-    if (ret != BHT_OK) {
-        return convert_errno(errno);
-    }
-
-    if (is_ipv4) {
-        ipv4_addr_to_wasi_addr(*(uint32_t *)buf, port, addr);
-    }
-    else {
-        ipv6_addr_to_wasi_addr((uint16 *)buf, port, addr);
-    }
-
-    return __WASI_ESUCCESS;
-}
-
-static bool
-wasi_addr_to_string(__wasi_addr_t *addr, char *buf, size_t buflen)
-{
-    if (addr->kind == IPv4) {
-        const char *format = "%u.%u.%u.%u";
-
-        assert(buflen >= 16);
-
-        snprintf(buf, buflen, format, addr->addr.ip4.addr.n0,
-                 addr->addr.ip4.addr.n1, addr->addr.ip4.addr.n2,
-                 addr->addr.ip4.addr.n3);
-
-        return true;
-    }
-    else if (addr->kind == IPv6) {
-        const char *format = "%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x";
-        __wasi_addr_ip6_t ipv6 = addr->addr.ip6.addr;
-
-        assert(buflen >= 40);
-
-        snprintf(buf, buflen, format, ipv6.n0, ipv6.n1, ipv6.n2, ipv6.n3,
-                 ipv6.h0, ipv6.h1, ipv6.h2, ipv6.h3);
-
-        return true;
-    }
-
-    return false;
+    return __WASI_ENOSYS;
 }
 
 __wasi_errno_t
@@ -3009,15 +2888,15 @@ wasi_ssp_sock_bind(
 #endif
     __wasi_fd_t fd, __wasi_addr_t *addr)
 {
-    char buf[48] = { 0 };
+    char buf[24] = { 0 };
+    const char *format = "%u.%u.%u.%u";
     struct fd_object *fo;
     __wasi_errno_t error;
-    int port = addr->kind == IPv4 ? addr->addr.ip4.port : addr->addr.ip6.port;
+    int port = addr->addr.ip4.port;
     int ret;
 
-    if (!wasi_addr_to_string(addr, buf, sizeof(buf))) {
-        return __WASI_EPROTONOSUPPORT;
-    }
+    snprintf(buf, 24, format, addr->addr.ip4.addr.n0, addr->addr.ip4.addr.n1,
+             addr->addr.ip4.addr.n2, addr->addr.ip4.addr.n3);
 
     if (!addr_pool_search(addr_pool, buf)) {
         return __WASI_EACCES;
@@ -3037,75 +2916,20 @@ wasi_ssp_sock_bind(
 }
 
 __wasi_errno_t
-wasi_ssp_sock_addr_resolve(
-#if !defined(WASMTIME_SSP_STATIC_CURFDS)
-    struct fd_table *curfds, char **ns_lookup_list,
-#endif
-    const char *host, const char *service, __wasi_addr_info_hints_t *hints,
-    __wasi_addr_info_t *addr_info, __wasi_size_t addr_info_size,
-    __wasi_size_t *max_info_size)
-{
-    bh_addr_info_t *wamr_addr_info =
-        wasm_runtime_malloc(addr_info_size * sizeof(bh_addr_info_t));
-    uint8_t hints_is_ipv4 = hints->family == INET4;
-    uint8_t hints_is_tcp = hints->type == SOCKET_STREAM;
-    size_t _max_info_size;
-    size_t actual_info_size;
-
-    if (!ns_lookup_list_search(ns_lookup_list, host)) {
-        return __WASI_EACCES;
-    }
-
-    if (!wamr_addr_info) {
-        return __WASI_ENOMEM;
-    }
-
-    int ret = os_socket_addr_resolve(
-        host, service, hints->hints_enabled ? &hints_is_tcp : NULL,
-        hints->hints_enabled ? &hints_is_ipv4 : NULL, wamr_addr_info,
-        addr_info_size, &_max_info_size);
-
-    if (ret != BHT_OK) {
-        wasm_runtime_free(wamr_addr_info);
-        return convert_errno(errno);
-    }
-
-    *max_info_size = _max_info_size;
-    actual_info_size =
-        addr_info_size < *max_info_size ? addr_info_size : *max_info_size;
-
-    for (size_t i = 0; i < actual_info_size; i++) {
-        addr_info[i].type =
-            wamr_addr_info[i].is_tcp ? SOCKET_STREAM : SOCKET_DGRAM;
-        if (wamr_addr_info[i].is_ipv4) {
-            ipv4_addr_to_wasi_addr(*(uint32_t *)wamr_addr_info[i].addr,
-                                   wamr_addr_info[i].port, &addr_info[i].addr);
-        }
-        else {
-            ipv6_addr_to_wasi_addr((uint16_t *)wamr_addr_info[i].addr,
-                                   wamr_addr_info[i].port, &addr_info[i].addr);
-        }
-    }
-
-    wasm_runtime_free(wamr_addr_info);
-    return __WASI_ESUCCESS;
-}
-
-__wasi_errno_t
 wasi_ssp_sock_connect(
 #if !defined(WASMTIME_SSP_STATIC_CURFDS)
     struct fd_table *curfds, struct addr_pool *addr_pool,
 #endif
     __wasi_fd_t fd, __wasi_addr_t *addr)
 {
-    char buf[48] = { 0 };
+    char buf[24] = { 0 };
+    const char *format = "%u.%u.%u.%u";
     struct fd_object *fo;
     __wasi_errno_t error;
     int ret;
 
-    if (!wasi_addr_to_string(addr, buf, sizeof(buf))) {
-        return __WASI_EPROTONOSUPPORT;
-    }
+    snprintf(buf, 24, format, addr->addr.ip4.addr.n0, addr->addr.ip4.addr.n1,
+             addr->addr.ip4.addr.n2, addr->addr.ip4.addr.n3);
 
     if (!addr_pool_search(addr_pool, buf)) {
         return __WASI_EACCES;
@@ -3115,9 +2939,7 @@ wasi_ssp_sock_connect(
     if (error != __WASI_ESUCCESS)
         return error;
 
-    ret = os_socket_connect(fd_number(fo), buf,
-                            addr->kind == IPv4 ? addr->addr.ip4.port
-                                               : addr->addr.ip6.port);
+    ret = os_socket_connect(fd_number(fo), buf, addr->addr.ip4.port);
     fd_object_release(fo);
     if (BHT_OK != ret) {
         return convert_errno(errno);
@@ -3158,8 +2980,7 @@ wasi_ssp_sock_open(
     __wasi_fd_t *sockfd)
 {
     bh_socket_t sock;
-    bool is_tcp = SOCKET_DGRAM == socktype ? false : true;
-    bool is_ipv4 = INET6 == af ? false : true;
+    int tcp_or_udp = 0;
     int ret;
     __wasi_filetype_t wasi_type;
     __wasi_rights_t max_base, max_inheriting;
@@ -3167,7 +2988,13 @@ wasi_ssp_sock_open(
 
     (void)poolfd;
 
-    ret = os_socket_create(&sock, is_ipv4, is_tcp);
+    if (INET4 != af) {
+        return __WASI_EAFNOSUPPORT;
+    }
+
+    tcp_or_udp = SOCKET_DGRAM == socktype ? 0 : 1;
+
+    ret = os_socket_create(&sock, tcp_or_udp);
     if (BHT_OK != ret) {
         return convert_errno(errno);
     }
@@ -3393,8 +3220,9 @@ fd_prestats_destroy(struct fd_prestats *pt)
 bool
 addr_pool_init(struct addr_pool *addr_pool)
 {
-    memset(addr_pool, 0, sizeof(*addr_pool));
-
+    addr_pool->next = NULL;
+    addr_pool->addr = 0;
+    addr_pool->mask = 0;
     return true;
 }
 
@@ -3403,7 +3231,6 @@ addr_pool_insert(struct addr_pool *addr_pool, const char *addr, uint8 mask)
 {
     struct addr_pool *cur = addr_pool;
     struct addr_pool *next;
-    bh_inet_network_output_t target;
 
     if (!addr_pool) {
         return false;
@@ -3415,20 +3242,9 @@ addr_pool_insert(struct addr_pool *addr_pool, const char *addr, uint8 mask)
 
     next->next = NULL;
     next->mask = mask;
-
-    if (os_socket_inet_network(true, addr, &target) != BHT_OK) {
-        // If parsing IPv4 fails, try IPv6
-        if (os_socket_inet_network(false, addr, &target) != BHT_OK) {
-            wasm_runtime_free(next);
-            return false;
-        }
-        next->type = IPv6;
-        bh_memcpy_s(next->addr.ip6, sizeof(next->addr.ip6), target.ipv6,
-                    sizeof(target.ipv6));
-    }
-    else {
-        next->type = IPv4;
-        next->addr.ip4 = target.ipv4;
+    if (os_socket_inet_network(addr, &next->addr) != BHT_OK) {
+        wasm_runtime_free(next);
+        return false;
     }
 
     /* attach with */
@@ -3439,106 +3255,47 @@ addr_pool_insert(struct addr_pool *addr_pool, const char *addr, uint8 mask)
     return true;
 }
 
-static inline size_t
-min(size_t a, size_t b)
-{
-    return a > b ? b : a;
-}
-
-static void
-init_address_mask(uint8_t *buf, size_t buflen, size_t mask)
-{
-    size_t element_size = sizeof(uint8_t) * 8;
-
-    for (size_t i = 0; i < buflen; i++) {
-        if (mask <= i * element_size) {
-            buf[i] = 0;
-        }
-        else {
-            size_t offset = min(mask - i * element_size, element_size);
-            buf[i] = (~0u) << (element_size - offset);
-        }
-    }
-}
-
-/* target must be in network byte order */
 static bool
-compare_address(const struct addr_pool *addr_pool_entry,
-                bh_inet_network_output_t *target)
+compare_address(const struct addr_pool *addr_pool_entry, const char *addr)
 {
-    uint8_t maskbuf[16] = { 0 };
-    uint8_t basebuf[16] = { 0 };
-    size_t addr_size;
-    uint8_t max_addr_mask;
-
-    if (addr_pool_entry->type == IPv4) {
-        uint32_t addr_ip4 = htonl(addr_pool_entry->addr.ip4);
-        bh_memcpy_s(basebuf, sizeof(addr_ip4), &addr_ip4, sizeof(addr_ip4));
-        addr_size = 4;
-    }
-    else {
-        uint16_t partial_addr_ip6;
-        for (int i = 0; i < 8; i++) {
-            partial_addr_ip6 = htons(addr_pool_entry->addr.ip6[i]);
-            bh_memcpy_s(&basebuf[i * sizeof(partial_addr_ip6)],
-                        sizeof(partial_addr_ip6), &partial_addr_ip6,
-                        sizeof(partial_addr_ip6));
-        }
-        addr_size = 16;
-    }
-    max_addr_mask = addr_size * 8;
-
-    /* IPv4 0.0.0.0 or IPv6 :: means any address */
-    if (basebuf[0] == 0 && !memcmp(basebuf, basebuf + 1, addr_size - 1)) {
+    /* host order */
+    uint32 target;
+    uint32 address = addr_pool_entry->addr;
+    /* 0.0.0.0 means any address */
+    if (0 == address) {
         return true;
     }
 
-    /* No support for invalid mask value */
-    if (addr_pool_entry->mask > max_addr_mask) {
+    if (os_socket_inet_network(addr, &target) != BHT_OK) {
         return false;
     }
 
-    init_address_mask(maskbuf, addr_size, addr_pool_entry->mask);
-
-    for (size_t i = 0; i < addr_size; i++) {
-        uint8_t addr_mask = target->data[i] & maskbuf[i];
-        uint8_t range_mask = basebuf[i] & maskbuf[i];
-        if (addr_mask != range_mask) {
-            return false;
-        }
+    const uint32 max_mask_value = 32;
+    /* no support for invalid mask values */
+    if (addr_pool_entry->mask > max_mask_value) {
+        return false;
     }
 
-    return true;
+    /* convert mask number into 32-bit mask value, i.e. mask /24 will be
+    converted to 4294967040 (binary: 11111111 11111111 11111111 00000000) */
+    uint32 mask = 0;
+    for (int i = 0; i < addr_pool_entry->mask; i++) {
+        mask |= 1 << (max_mask_value - 1 - i);
+    }
+
+    uint32 first_address = address & mask;
+    uint32 last_address = address | (~mask);
+    return first_address <= target && target <= last_address;
 }
 
 bool
 addr_pool_search(struct addr_pool *addr_pool, const char *addr)
 {
     struct addr_pool *cur = addr_pool->next;
-    bh_inet_network_output_t target;
-    __wasi_addr_type_t addr_type;
-
-    if (os_socket_inet_network(true, addr, &target) != BHT_OK) {
-        size_t i;
-
-        if (os_socket_inet_network(false, addr, &target) != BHT_OK) {
-            return false;
-        }
-        addr_type = IPv6;
-        for (i = 0; i < sizeof(target.ipv6) / sizeof(target.ipv6[0]); i++) {
-            target.ipv6[i] = htons(target.ipv6[i]);
-        }
-    }
-    else {
-        addr_type = IPv4;
-        target.ipv4 = htonl(target.ipv4);
-    }
 
     while (cur) {
-        if (cur->type == addr_type && compare_address(cur, &target)) {
+        if (compare_address(cur, addr))
             return true;
-        }
-
         cur = cur->next;
     }
 
@@ -3556,37 +3313,3 @@ addr_pool_destroy(struct addr_pool *addr_pool)
         cur = next;
     }
 }
-
-#ifndef WASMTIME_SSP_STATIC_CURFDS
-#define WASMTIME_SSP_PASSTHROUGH_FD_TABLE struct fd_table *curfds,
-#else
-#define WASMTIME_SSP_PASSTHROUGH_FD_TABLE
-#endif
-
-// Defines a function that passes through the socket option to the OS
-// implementation
-#define WASMTIME_SSP_PASSTHROUGH_SOCKET_OPTION(FUNC_NAME, OPTION_TYPE) \
-    __wasi_errno_t wasmtime_ssp_sock_##FUNC_NAME(                      \
-        WASMTIME_SSP_PASSTHROUGH_FD_TABLE __wasi_fd_t sock,            \
-        OPTION_TYPE option)                                            \
-    {                                                                  \
-        struct fd_object *fo;                                          \
-        __wasi_errno_t error;                                          \
-        int ret;                                                       \
-        error = fd_object_get(curfds, &fo, sock, 0, 0);                \
-        if (error != 0)                                                \
-            return error;                                              \
-        ret = os_socket_##FUNC_NAME(fd_number(fo), option);            \
-        fd_object_release(fo);                                         \
-        if (BHT_OK != ret)                                             \
-            return convert_errno(errno);                               \
-        return __WASI_ESUCCESS;                                        \
-    }
-
-WASMTIME_SSP_PASSTHROUGH_SOCKET_OPTION(set_send_timeout, uint64)
-WASMTIME_SSP_PASSTHROUGH_SOCKET_OPTION(get_send_timeout, uint64 *)
-WASMTIME_SSP_PASSTHROUGH_SOCKET_OPTION(set_recv_timeout, uint64)
-WASMTIME_SSP_PASSTHROUGH_SOCKET_OPTION(get_recv_timeout, uint64 *)
-
-#undef WASMTIME_SSP_PASSTHROUGH_FD_TABLE
-#undef WASMTIME_SSP_PASSTHROUGH_SOCKET_OPTION

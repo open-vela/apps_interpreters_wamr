@@ -47,13 +47,9 @@ struct argv_environ_values {
 };
 
 struct addr_pool {
-    /* addr and mask in host order */
-    union {
-        uint32 ip4;
-        uint16 ip6[8];
-    } addr;
     struct addr_pool *next;
-    __wasi_addr_type_t type;
+    /* addr and mask in host order */
+    uint32 addr;
     uint8 mask;
 };
 

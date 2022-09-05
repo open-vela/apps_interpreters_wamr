@@ -37,27 +37,17 @@ deinit_winsock()
 }
 
 int
-os_socket_create(bh_socket_t *sock, bool is_ipv4, bool is_tcp)
+os_socket_create(bh_socket_t *sock, int tcp_or_udp)
 {
-    int af;
-
     if (!sock) {
         return BHT_ERROR;
     }
 
-    if (is_ipv4) {
-        af = AF_INET;
+    if (1 == tcp_or_udp) {
+        *sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     }
-    else {
-        errno = ENOSYS;
-        return BHT_ERROR;
-    }
-
-    if (is_tcp) {
-        *sock = socket(af, SOCK_STREAM, IPPROTO_TCP);
-    }
-    else {
-        *sock = socket(af, SOCK_DGRAM, 0);
+    else if (0 == tcp_or_udp) {
+        *sock = socket(AF_INET, SOCK_DGRAM, 0);
     }
 
     return (*sock == -1) ? BHT_ERROR : BHT_OK;
@@ -164,88 +154,11 @@ os_socket_shutdown(bh_socket_t socket)
 }
 
 int
-os_socket_inet_network(bool is_ipv4, const char *cp,
-                       bh_inet_network_output_t *out)
+os_socket_inet_network(const char *cp, uint32 *out)
 {
     if (!cp)
         return BHT_ERROR;
 
-    if (is_ipv4) {
-        if (inet_pton(AF_INET, cp, &out->ipv4) != 1) {
-            return BHT_ERROR;
-        }
-        /* Note: ntohl(INADDR_NONE) == INADDR_NONE */
-        out->ipv4 = ntohl(out->ipv4);
-    }
-    else {
-        if (inet_pton(AF_INET6, cp, out->ipv6) != 1) {
-            return BHT_ERROR;
-        }
-        for (int i = 0; i < 8; i++) {
-            out->ipv6[i] = ntohs(out->ipv6[i]);
-        }
-    }
-
+    *out = inet_addr(cp);
     return BHT_OK;
-}
-
-int
-os_socket_addr_resolve(const char *host, const char *service,
-                       uint8_t *hint_is_tcp, uint8_t *hint_is_ipv4,
-                       bh_addr_info_t *addr_info, size_t addr_info_size,
-                       size_t *max_info_size)
-{
-    errno = ENOSYS;
-
-    return BHT_ERROR;
-}
-
-int
-os_socket_addr_local(bh_socket_t socket, uint8_t *buf, size_t buflen,
-                     uint16_t *port, uint8_t *is_ipv4)
-{
-    errno = ENOSYS;
-
-    return BHT_ERROR;
-}
-
-int
-os_socket_set_send_timeout(bh_socket_t socket, uint64 timeout_us)
-{
-    errno = ENOSYS;
-
-    return BHT_ERROR;
-}
-
-int
-os_socket_get_send_timeout(bh_socket_t socket, uint64 *timeout_us)
-{
-    errno = ENOSYS;
-
-    return BHT_ERROR;
-}
-
-int
-os_socket_set_recv_timeout(bh_socket_t socket, uint64 timeout_us)
-{
-    errno = ENOSYS;
-
-    return BHT_ERROR;
-}
-
-int
-os_socket_get_recv_timeout(bh_socket_t socket, uint64 *timeout_us)
-{
-    errno = ENOSYS;
-
-    return BHT_ERROR;
-}
-
-int
-os_socket_addr_remote(bh_socket_t socket, uint8_t *buf, size_t buflen,
-                      uint16_t *port, uint8_t *is_ipv4)
-{
-    errno = ENOSYS;
-
-    return BHT_ERROR;
 }
