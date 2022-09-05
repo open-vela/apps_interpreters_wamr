@@ -363,8 +363,6 @@ typedef struct WASIContext {
     struct fd_prestats *prestats;
     struct argv_environ_values *argv_environ;
     struct addr_pool *addr_pool;
-    char *ns_lookup_buf;
-    char **ns_lookup_list;
     char *argv_buf;
     char **argv_list;
     char *env_buf;
@@ -565,6 +563,11 @@ wasm_runtime_call_wasm_v(WASMExecEnv *exec_env,
                          uint32 num_args, ...);
 
 #if WASM_ENABLE_DEBUG_INTERP != 0
+/* See wasm_export.h for description */
+WASM_RUNTIME_API_EXTERN uint32
+wasm_runtime_start_debug_instance_with_port(WASMExecEnv *exec_env,
+                                            int32_t port);
+
 /* See wasm_export.h for description */
 WASM_RUNTIME_API_EXTERN uint32
 wasm_runtime_start_debug_instance(WASMExecEnv *exec_env);
@@ -772,7 +775,6 @@ wasm_runtime_init_wasi(WASMModuleInstanceCommon *module_inst,
                        const char *map_dir_list[], uint32 map_dir_count,
                        const char *env[], uint32 env_count,
                        const char *addr_pool[], uint32 addr_pool_size,
-                       const char *ns_lookup_pool[], uint32 ns_lookup_pool_size,
                        char *argv[], uint32 argc, int stdinfd, int stdoutfd,
                        int stderrfd, char *error_buf, uint32 error_buf_size);
 
@@ -789,11 +791,6 @@ wasm_runtime_get_wasi_ctx(WASMModuleInstanceCommon *module_inst);
 WASM_RUNTIME_API_EXTERN void
 wasm_runtime_set_wasi_addr_pool(wasm_module_t module, const char *addr_pool[],
                                 uint32 addr_pool_size);
-
-WASM_RUNTIME_API_EXTERN void
-wasm_runtime_set_wasi_ns_lookup_pool(wasm_module_t module,
-                                     const char *ns_lookup_pool[],
-                                     uint32 ns_lookup_pool_size);
 #endif /* end of WASM_ENABLE_LIBC_WASI */
 
 #if WASM_ENABLE_REF_TYPES != 0

@@ -341,10 +341,6 @@ wasm_runtime_init()
 void
 wasm_runtime_destroy()
 {
-#if WASM_ENABLE_FAST_JIT != 0
-    jit_compiler_destroy();
-#endif
-
 #if WASM_ENABLE_REF_TYPES != 0
     wasm_externref_map_destroy();
 #endif
@@ -366,6 +362,14 @@ wasm_runtime_destroy()
 
     wasm_runtime_destroy_registered_module_list();
     os_mutex_destroy(&registered_module_list_lock);
+#endif
+
+#if WASM_ENABLE_FAST_JIT != 0
+    /* Destroy Fast-JIT compiler after destroying the modules
+     * loaded by multi-module feature, since the Fast JIT's
+     * code cache allocator may be used by these modules.
+     */
+    jit_compiler_destroy();
 #endif
 
 #if WASM_ENABLE_SHARED_MEMORY
@@ -404,7 +408,6 @@ wasm_runtime_full_init(RuntimeInitArgs *init_args)
 #if WASM_ENABLE_DEBUG_INTERP != 0
     if (strlen(init_args->ip_addr))
         if (!wasm_debug_engine_init(init_args->ip_addr,
-                                    init_args->platform_port,
                                     init_args->instance_port)) {
             wasm_runtime_destroy();
             return false;
@@ -504,7 +507,7 @@ wasm_runtime_is_xip_file(const uint8 *buf, uint32 size)
 
 #if (WASM_ENABLE_THREAD_MGR != 0) && (WASM_ENABLE_DEBUG_INTERP != 0)
 uint32
-wasm_runtime_start_debug_instance(WASMExecEnv *exec_env)
+wasm_runtime_start_debug_instance_with_port(WASMExecEnv *exec_env, int32_t port)
 {
     WASMModuleInstanceCommon *module_inst =
         wasm_runtime_get_module_inst(exec_env);
@@ -522,11 +525,17 @@ wasm_runtime_start_debug_instance(WASMExecEnv *exec_env)
         return cluster->debug_inst->control_thread->port;
     }
 
-    if (wasm_debug_instance_create(cluster)) {
+    if (wasm_debug_instance_create(cluster, port)) {
         return cluster->debug_inst->control_thread->port;
     }
 
     return 0;
+}
+
+uint32
+wasm_runtime_start_debug_instance(WASMExecEnv *exec_env)
+{
+    return wasm_runtime_start_debug_instance_with_port(exec_env, -1);
 }
 #endif
 
@@ -2319,8 +2328,12 @@ wasm_runtime_enlarge_memory(WASMModuleInstanceCommon *module,
 
 #if WASM_ENABLE_LIBC_WASI != 0
 
-static WASIArguments *
-get_wasi_args_from_module(wasm_module_t module)
+void
+wasm_runtime_set_wasi_args_ex(WASMModuleCommon *module, const char *dir_list[],
+                              uint32 dir_count, const char *map_dir_list[],
+                              uint32 map_dir_count, const char *env_list[],
+                              uint32 env_count, char *argv[], int argc,
+                              int stdinfd, int stdoutfd, int stderrfd)
 {
     WASIArguments *wasi_args = NULL;
 
@@ -2332,18 +2345,6 @@ get_wasi_args_from_module(wasm_module_t module)
     if (module->module_type == Wasm_Module_AoT)
         wasi_args = &((AOTModule *)module)->wasi_args;
 #endif
-
-    return wasi_args;
-}
-
-void
-wasm_runtime_set_wasi_args_ex(WASMModuleCommon *module, const char *dir_list[],
-                              uint32 dir_count, const char *map_dir_list[],
-                              uint32 map_dir_count, const char *env_list[],
-                              uint32 env_count, char *argv[], int argc,
-                              int stdinfd, int stdoutfd, int stderrfd)
-{
-    WASIArguments *wasi_args = get_wasi_args_from_module(module);
 
     if (wasi_args) {
         wasi_args->dir_list = dir_list;
@@ -2375,7 +2376,16 @@ void
 wasm_runtime_set_wasi_addr_pool(wasm_module_t module, const char *addr_pool[],
                                 uint32 addr_pool_size)
 {
-    WASIArguments *wasi_args = get_wasi_args_from_module(module);
+    WASIArguments *wasi_args = NULL;
+
+#if WASM_ENABLE_INTERP != 0 || WASM_ENABLE_JIT != 0
+    if (module->module_type == Wasm_Module_Bytecode)
+        wasi_args = &((WASMModule *)module)->wasi_args;
+#endif
+#if WASM_ENABLE_AOT != 0
+    if (module->module_type == Wasm_Module_AoT)
+        wasi_args = &((AOTModule *)module)->wasi_args;
+#endif
 
     if (wasi_args) {
         wasi_args->addr_pool = addr_pool;
@@ -2383,67 +2393,13 @@ wasm_runtime_set_wasi_addr_pool(wasm_module_t module, const char *addr_pool[],
     }
 }
 
-void
-wasm_runtime_set_wasi_ns_lookup_pool(wasm_module_t module,
-                                     const char *ns_lookup_pool[],
-                                     uint32 ns_lookup_pool_size)
-{
-    WASIArguments *wasi_args = get_wasi_args_from_module(module);
-
-    if (wasi_args) {
-        wasi_args->ns_lookup_pool = ns_lookup_pool;
-        wasi_args->ns_lookup_count = ns_lookup_pool_size;
-    }
-}
-
 #if WASM_ENABLE_UVWASI == 0
-static bool
-copy_string_array(const char *array[], uint32 array_size, char **buf_ptr,
-                  char ***list_ptr, uint64 *out_buf_size)
-{
-    uint64 buf_size = 0, total_size;
-    uint32 buf_offset = 0, i;
-    char *buf = NULL, **list = NULL;
-
-    for (i = 0; i < array_size; i++)
-        buf_size += strlen(array[i]) + 1;
-
-    /* We add +1 to generate null-terminated array of strings */
-    total_size = sizeof(char *) * (uint64)array_size + 1;
-    if (total_size >= UINT32_MAX
-        || (total_size > 0 && !(list = wasm_runtime_malloc((uint32)total_size)))
-        || buf_size >= UINT32_MAX
-        || (buf_size > 0 && !(buf = wasm_runtime_malloc((uint32)buf_size)))) {
-
-        if (buf)
-            wasm_runtime_free(buf);
-        if (list)
-            wasm_runtime_free(list);
-        return false;
-    }
-
-    for (i = 0; i < array_size; i++) {
-        list[i] = buf + buf_offset;
-        bh_strcpy_s(buf + buf_offset, (uint32)buf_size - buf_offset, array[i]);
-        buf_offset += (uint32)(strlen(array[i]) + 1);
-    }
-    list[array_size] = NULL;
-
-    *list_ptr = list;
-    *buf_ptr = buf;
-    if (out_buf_size)
-        *out_buf_size = buf_size;
-
-    return true;
-}
-
 bool
 wasm_runtime_init_wasi(WASMModuleInstanceCommon *module_inst,
                        const char *dir_list[], uint32 dir_count,
                        const char *map_dir_list[], uint32 map_dir_count,
                        const char *env[], uint32 env_count,
                        const char *addr_pool[], uint32 addr_pool_size,
-                       const char *ns_lookup_pool[], uint32 ns_lookup_pool_size,
                        char *argv[], uint32 argc, int stdinfd, int stdoutfd,
                        int stderrfd, char *error_buf, uint32 error_buf_size)
 {
@@ -2452,9 +2408,8 @@ wasm_runtime_init_wasi(WASMModuleInstanceCommon *module_inst,
     char **argv_list = NULL;
     char *env_buf = NULL;
     char **env_list = NULL;
-    char *ns_lookup_buf = NULL;
-    char **ns_lookup_list = NULL;
-    uint64 argv_buf_size = 0, env_buf_size = 0;
+    uint64 argv_buf_size = 0, env_buf_size = 0, total_size;
+    uint32 argv_buf_offset = 0, env_buf_offset = 0;
     struct fd_table *curfds = NULL;
     struct fd_prestats *prestats = NULL;
     struct argv_environ_values *argv_environ = NULL;
@@ -2488,18 +2443,48 @@ wasm_runtime_init_wasi(WASMModuleInstanceCommon *module_inst,
 #endif
 
     /* process argv[0], trip the path and suffix, only keep the program name */
-    if (!copy_string_array((const char **)argv, argc, &argv_buf, &argv_list,
-                           &argv_buf_size)) {
+    for (i = 0; i < argc; i++)
+        argv_buf_size += strlen(argv[i]) + 1;
+
+    total_size = sizeof(char *) * (uint64)argc;
+    if (total_size >= UINT32_MAX
+        || (total_size > 0
+            && !(argv_list = wasm_runtime_malloc((uint32)total_size)))
+        || argv_buf_size >= UINT32_MAX
+        || (argv_buf_size > 0
+            && !(argv_buf = wasm_runtime_malloc((uint32)argv_buf_size)))) {
         set_error_buf(error_buf, error_buf_size,
                       "Init wasi environment failed: allocate memory failed");
         goto fail;
     }
 
-    if (!copy_string_array(env, env_count, &env_buf, &env_list,
-                           &env_buf_size)) {
+    for (i = 0; i < argc; i++) {
+        argv_list[i] = argv_buf + argv_buf_offset;
+        bh_strcpy_s(argv_buf + argv_buf_offset,
+                    (uint32)argv_buf_size - argv_buf_offset, argv[i]);
+        argv_buf_offset += (uint32)(strlen(argv[i]) + 1);
+    }
+
+    for (i = 0; i < env_count; i++)
+        env_buf_size += strlen(env[i]) + 1;
+
+    total_size = sizeof(char *) * (uint64)env_count;
+    if (total_size >= UINT32_MAX
+        || (total_size > 0
+            && !(env_list = wasm_runtime_malloc((uint32)total_size)))
+        || env_buf_size >= UINT32_MAX
+        || (env_buf_size > 0
+            && !(env_buf = wasm_runtime_malloc((uint32)env_buf_size)))) {
         set_error_buf(error_buf, error_buf_size,
                       "Init wasi environment failed: allocate memory failed");
         goto fail;
+    }
+
+    for (i = 0; i < env_count; i++) {
+        env_list[i] = env_buf + env_buf_offset;
+        bh_strcpy_s(env_buf + env_buf_offset,
+                    (uint32)env_buf_size - env_buf_offset, env[i]);
+        env_buf_offset += (uint32)(strlen(env[i]) + 1);
     }
 
     if (!(curfds = wasm_runtime_malloc(sizeof(struct fd_table)))
@@ -2603,13 +2588,6 @@ wasm_runtime_init_wasi(WASMModuleInstanceCommon *module_inst,
         }
     }
 
-    if (!copy_string_array(ns_lookup_pool, ns_lookup_pool_size, &ns_lookup_buf,
-                           &ns_lookup_list, NULL)) {
-        set_error_buf(error_buf, error_buf_size,
-                      "Init wasi environment failed: allocate memory failed");
-        goto fail;
-    }
-
     wasi_ctx->curfds = curfds;
     wasi_ctx->prestats = prestats;
     wasi_ctx->argv_environ = argv_environ;
@@ -2618,8 +2596,6 @@ wasm_runtime_init_wasi(WASMModuleInstanceCommon *module_inst,
     wasi_ctx->argv_list = argv_list;
     wasi_ctx->env_buf = env_buf;
     wasi_ctx->env_list = env_list;
-    wasi_ctx->ns_lookup_buf = ns_lookup_buf;
-    wasi_ctx->ns_lookup_list = ns_lookup_list;
 
     return true;
 
@@ -2648,10 +2624,6 @@ fail:
         wasm_runtime_free(env_buf);
     if (env_list)
         wasm_runtime_free(env_list);
-    if (ns_lookup_buf)
-        wasm_runtime_free(ns_lookup_buf);
-    if (ns_lookup_list)
-        wasm_runtime_free(ns_lookup_list);
     return false;
 }
 #else  /* else of WASM_ENABLE_UVWASI == 0 */
@@ -2703,7 +2675,6 @@ wasm_runtime_init_wasi(WASMModuleInstanceCommon *module_inst,
                        const char *map_dir_list[], uint32 map_dir_count,
                        const char *env[], uint32 env_count,
                        const char *addr_pool[], uint32 addr_pool_size,
-                       const char *ns_lookup_pool[], uint32 ns_lookup_pool_size,
                        char *argv[], uint32 argc, int stdinfd, int stdoutfd,
                        int stderrfd, char *error_buf, uint32 error_buf_size)
 {
@@ -2880,11 +2851,6 @@ wasm_runtime_destroy_wasi(WASMModuleInstanceCommon *module_inst)
             wasm_runtime_free(wasi_ctx->env_buf);
         if (wasi_ctx->env_list)
             wasm_runtime_free(wasi_ctx->env_list);
-        if (wasi_ctx->ns_lookup_buf)
-            wasm_runtime_free(wasi_ctx->ns_lookup_buf);
-        if (wasi_ctx->ns_lookup_list)
-            wasm_runtime_free(wasi_ctx->ns_lookup_list);
-
         wasm_runtime_free(wasi_ctx);
     }
 }
