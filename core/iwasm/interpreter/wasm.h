@@ -29,6 +29,7 @@ extern "C" {
 #define VALUE_TYPE_ANY 0x42
 
 #define DEFAULT_NUM_BYTES_PER_PAGE 65536
+#define DEFAULT_MAX_PAGES 65536
 
 #define NULL_REF (0xFFFFFFFF)
 
@@ -320,8 +321,6 @@ typedef struct WASIArguments {
     /* in CIDR noation */
     const char **addr_pool;
     uint32 addr_count;
-    const char **ns_lookup_pool;
-    uint32 ns_lookup_count;
     char **argv;
     uint32 argc;
     int stdio[3];

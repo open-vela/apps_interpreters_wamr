@@ -18,7 +18,7 @@ struct packet_handler_elem {
 
 #define DEL_HANDLER(r, h) [r] = { .request = r, .handler = h }
 
-static struct packet_handler_elem packet_handler_table[255] = {
+static const struct packet_handler_elem packet_handler_table[255] = {
     DEL_HANDLER('Q', handle_general_set),
     DEL_HANDLER('q', handle_general_query),
     DEL_HANDLER('v', handle_v_packet),
@@ -59,7 +59,7 @@ wasm_create_gdbserver(const char *host, int32 *port)
 
     memset(server->receive_ctx, 0, sizeof(rsp_recv_context_t));
 
-    if (0 != os_socket_create(&listen_fd, true, true)) {
+    if (0 != os_socket_create(&listen_fd, 1)) {
         LOG_ERROR("wasm gdb server error: create socket failed");
         goto fail;
     }
