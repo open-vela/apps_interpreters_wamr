@@ -598,6 +598,18 @@ typedef struct __wasi_addr_t {
 
 typedef enum { INET4 = 0, INET6 } __wasi_address_family_t;
 
+typedef struct __wasi_addr_info_t {
+    __wasi_addr_t addr;
+    __wasi_sock_type_t type;
+} __wasi_addr_info_t;
+
+typedef struct __wasi_addr_info_hints_t {
+   __wasi_sock_type_t type;
+   __wasi_address_family_t family;
+   // this is to workaround lack of optional parameters
+   uint8_t hints_enabled;
+} __wasi_addr_info_hints_t;
+
 #if defined(WASMTIME_SSP_WASI_API)
 #define WASMTIME_SSP_SYSCALL_NAME(name) \
     asm("__wasi_" #name)
@@ -995,7 +1007,7 @@ wasi_ssp_sock_addr_local(
 #if !defined(WASMTIME_SSP_STATIC_CURFDS)
     struct fd_table *curfds,
 #endif
-    __wasi_fd_t fd, uint8_t *buf, __wasi_size_t buf_len
+    __wasi_fd_t fd, __wasi_addr_t *addr
 ) __attribute__((__warn_unused_result__));
 
 __wasi_errno_t
@@ -1003,7 +1015,7 @@ wasi_ssp_sock_addr_remote(
 #if !defined(WASMTIME_SSP_STATIC_CURFDS)
     struct fd_table *curfds,
 #endif
-    __wasi_fd_t fd, uint8_t *buf, __wasi_size_t buf_len
+    __wasi_fd_t fd, __wasi_addr_t *addr
 ) __attribute__((__warn_unused_result__));
 
 __wasi_errno_t
@@ -1021,6 +1033,16 @@ wasi_ssp_sock_bind(
     struct fd_table *curfds, struct addr_pool *addr_pool,
 #endif
     __wasi_fd_t fd, __wasi_addr_t *addr
+) __attribute__((__warn_unused_result__));
+
+__wasi_errno_t
+wasi_ssp_sock_addr_resolve(
+#if !defined(WASMTIME_SSP_STATIC_CURFDS)
+    struct fd_table *curfds, char **ns_lookup_list,
+#endif
+    const char *host, const char* service,
+    __wasi_addr_info_hints_t *hints, __wasi_addr_info_t *addr_info,
+    __wasi_size_t addr_info_size, __wasi_size_t *max_info_size
 ) __attribute__((__warn_unused_result__));
 
 __wasi_errno_t
@@ -1065,6 +1087,38 @@ __wasi_errno_t wasmtime_ssp_sock_shutdown(
 #endif
     __wasi_fd_t sock
 ) WASMTIME_SSP_SYSCALL_NAME(sock_shutdown) __attribute__((__warn_unused_result__));
+
+__wasi_errno_t wasmtime_ssp_sock_set_recv_timeout(
+#if !defined(WASMTIME_SSP_STATIC_CURFDS)
+    struct fd_table *curfds,
+#endif
+    __wasi_fd_t sock,
+    uint64_t timeout_us
+) WASMTIME_SSP_SYSCALL_NAME(sock_set_recv_timeout) __attribute__((__warn_unused_result__));
+
+__wasi_errno_t wasmtime_ssp_sock_get_recv_timeout(
+#if !defined(WASMTIME_SSP_STATIC_CURFDS)
+    struct fd_table *curfds,
+#endif
+    __wasi_fd_t sock,
+    uint64_t *timeout_us
+) WASMTIME_SSP_SYSCALL_NAME(sock_get_recv_timeout) __attribute__((__warn_unused_result__));
+
+__wasi_errno_t wasmtime_ssp_sock_set_send_timeout(
+#if !defined(WASMTIME_SSP_STATIC_CURFDS)
+    struct fd_table *curfds,
+#endif
+    __wasi_fd_t sock,
+    uint64_t timeout_us
+) WASMTIME_SSP_SYSCALL_NAME(sock_set_send_timeout) __attribute__((__warn_unused_result__));
+
+__wasi_errno_t wasmtime_ssp_sock_get_send_timeout(
+#if !defined(WASMTIME_SSP_STATIC_CURFDS)
+    struct fd_table *curfds,
+#endif
+    __wasi_fd_t sock,
+    uint64_t *timeout_us
+) WASMTIME_SSP_SYSCALL_NAME(sock_get_send_timeout) __attribute__((__warn_unused_result__));
 
 __wasi_errno_t wasmtime_ssp_sched_yield(void)
     WASMTIME_SSP_SYSCALL_NAME(sched_yield) __attribute__((__warn_unused_result__));
