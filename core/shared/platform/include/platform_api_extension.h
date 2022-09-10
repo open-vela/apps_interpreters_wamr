@@ -296,12 +296,13 @@ os_sem_unlink(const char *name);
  * Create a socket
  *
  * @param sock [OUTPUT] the pointer of socket
- * @param tcp_or_udp 1 for tcp, 0 for udp
+ * @param is_ipv4 true for IPv4, false for IPv6
+ * @param is_tcp true for tcp, false for udp
  *
  * @return 0 if success, -1 otherwise
  */
 int
-os_socket_create(bh_socket_t *sock, int tcp_or_udp);
+os_socket_create(bh_socket_t *sock, bool is_ipv4, bool is_tcp);
 
 /**
  * Assign the address and port to the socket
@@ -412,17 +413,147 @@ os_socket_close(bh_socket_t socket);
 int
 os_socket_shutdown(bh_socket_t socket);
 
+typedef union {
+    uint32 ipv4;
+    uint16 ipv6[8];
+    uint8_t data[0];
+} bh_inet_network_output_t;
+
 /**
  * converts cp into a number in host byte order suitable for use as
  * an Internet network address
  *
- * @param cp a string in IPv4 numbers-and-dots notation
+ * @param is_ipv4 a flag that indicates whether the string is an IPv4 or
+ * IPv6 address
  *
- * @return On success, the converted address is  returned.
+ * @param cp a string in IPv4 numbers-and-dots notation or IPv6
+ * numbers-and-colons notation
+ *
+ * @param out an output buffer to store binary address
+ *
+ * @return On success, the function returns 0.
  * If the input is invalid, -1 is returned
  */
 int
-os_socket_inet_network(const char *cp, uint32 *out);
+os_socket_inet_network(bool is_ipv4, const char *cp,
+                       bh_inet_network_output_t *out);
+
+typedef struct {
+    uint8_t addr[16];
+    uint16_t port;
+    uint8_t is_ipv4;
+    uint8_t is_tcp;
+} bh_addr_info_t;
+
+/**
+ * Resolve a host a hostname and a service to one or more IP addresses
+ *
+ * @param host a host to resolve
+ *
+ * @param service a service to find a port for
+ *
+ * @param hint_is_tcp an optional flag that determines a preferred socket type
+ (TCP or UDP).
+ *
+ * @param hint_is_ipv4 an optional flag that determines a preferred address
+ family (IPv4 or IPv6)
+ *
+ * @param addr_info a buffer for resolved addresses
+ *
+ * @param addr_info_size a size of the buffer for resolved addresses
+
+ * @param max_info_size a maximum number of addresses available (can be bigger
+ or smaller than buffer size)
+
+ * @return On success, the function returns 0; otherwise, it returns -1
+ */
+int
+os_socket_addr_resolve(const char *host, const char *service,
+                       uint8_t *hint_is_tcp, uint8_t *hint_is_ipv4,
+                       bh_addr_info_t *addr_info, size_t addr_info_size,
+                       size_t *max_info_size);
+
+/**
+ * Returns an binary address and a port of the local socket
+ *
+ * @param socket the local socket
+ *
+ * @param buf buffer to store the address
+ *
+ * @param buflen length of the buf buffer
+ *
+ * @param port a buffer for storing socket's port
+ *
+ * @param is_ipv4 a buffer for storing information about the address family
+ *
+ * @return On success, returns 0; otherwise, it returns -1.
+ */
+int
+os_socket_addr_local(bh_socket_t socket, uint8_t *buf, size_t buflen,
+                     uint16_t *port, uint8_t *is_ipv4);
+
+/**
+ * Returns an binary address and a port of the remote socket
+ *
+ * @param socket the remote socket
+ *
+ * @param buf buffer to store the address
+ *
+ * @param buflen length of the buf buffer
+ *
+ * @param port a buffer for storing socket's port
+ *
+ * @param is_ipv4 a buffer for storing information about the address family
+ *
+ * @return On success, returns 0; otherwise, it returns -1.
+ */
+int
+os_socket_addr_remote(bh_socket_t socket, uint8_t *buf, size_t buflen,
+                      uint16_t *port, uint8_t *is_ipv4);
+
+/**
+ * Set the send timeout until reporting an error
+ *
+ * @param socket the socket to set
+ * @param time_us microseconds until timeout
+ *
+ * @return 0 if success, -1 otherwise
+ */
+int
+os_socket_set_send_timeout(bh_socket_t socket, uint64 timeout_us);
+
+/**
+ * Get the send timeout until reporting an error
+ *
+ * @param socket the socket to set
+ * @param time_us the returned microseconds until timeout
+ *
+ * @return 0 if success, -1 otherwise
+ */
+int
+os_socket_get_send_timeout(bh_socket_t socket, uint64 *timeout_us);
+
+/**
+ * Set the recv timeout until reporting an error
+ *
+ * @param socket the socket to set
+ * @param time_us microseconds until timeout
+ *
+ * @return 0 if success, -1 otherwise
+ */
+int
+os_socket_set_recv_timeout(bh_socket_t socket, uint64 timeout_us);
+
+/**
+ * Get the recv timeout until reporting an error
+ *
+ * @param socket the socket to set
+ * @param time_us the returned microseconds until timeout
+ *
+ * @return 0 if success, -1 otherwise
+ */
+int
+os_socket_get_recv_timeout(bh_socket_t socket, uint64 *timeout_us);
 
 #ifdef __cplusplus
 }
