@@ -103,5 +103,5 @@ bh_log_proc_mem(const char *function, uint32 line)
 {
     char prompt[128] = { 0 };
     snprintf(prompt, sizeof(prompt), "[MEM] %s(...) L%" PRIu32, function, line);
-    bh_print_proc_mem(prompt);
+    return bh_print_proc_mem(prompt);
 }
