@@ -409,7 +409,7 @@ jit_compile_op_call(JitCompContext *cc, uint32 func_idx, bool tail_call)
 
         res = create_first_res_reg(cc, func_type);
 
-        GEN_INSN(CALLBC, res, 0, jitted_code, NEW_CONST(I32, func_idx));
+        GEN_INSN(CALLBC, res, 0, jitted_code);
 
         if (!post_return(cc, func_type, res, true)) {
             goto fail;
@@ -624,19 +624,19 @@ jit_compile_op_call_indirect(JitCompContext *cc, uint32 type_idx,
                          NEW_CONST(I32, offset_of_local(n)));
                 break;
             case VALUE_TYPE_I64:
-                res = jit_cc_new_reg_I64(cc);
+                res = jit_cc_new_reg_I32(cc);
                 GEN_INSN(LDI64, res, argv, NEW_CONST(I32, 0));
                 GEN_INSN(STI64, res, cc->fp_reg,
                          NEW_CONST(I32, offset_of_local(n)));
                 break;
             case VALUE_TYPE_F32:
-                res = jit_cc_new_reg_F32(cc);
+                res = jit_cc_new_reg_I32(cc);
                 GEN_INSN(LDF32, res, argv, NEW_CONST(I32, 0));
                 GEN_INSN(STF32, res, cc->fp_reg,
                          NEW_CONST(I32, offset_of_local(n)));
                 break;
             case VALUE_TYPE_F64:
-                res = jit_cc_new_reg_F64(cc);
+                res = jit_cc_new_reg_I32(cc);
                 GEN_INSN(LDF64, res, argv, NEW_CONST(I32, 0));
                 GEN_INSN(STF64, res, cc->fp_reg,
                          NEW_CONST(I32, offset_of_local(n)));
@@ -700,7 +700,7 @@ jit_compile_op_call_indirect(JitCompContext *cc, uint32 type_idx,
                 goto fail;
         }
     }
-    GEN_INSN(CALLBC, res, 0, jitted_code, func_idx);
+    GEN_INSN(CALLBC, res, 0, jitted_code);
     /* Store res into current frame, so that post_return in
         block func_return can get the value */
     n = cc->jit_frame->sp - cc->jit_frame->lp;

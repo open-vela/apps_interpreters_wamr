@@ -15,8 +15,7 @@ export interface OwnShellOption {
 export class WasmTaskProvider implements vscode.TaskProvider {
     constructor(
         public _type: Map<string, string>,
-        public _script: Map<string, string>,
-        public _wamrVersion: string
+        public _script: Map<string, string>
     ) {}
 
     buildShellOption: OwnShellOption | undefined;
@@ -32,11 +31,7 @@ export class WasmTaskProvider implements vscode.TaskProvider {
             let targetName =
                 TargetConfigPanel.BUILD_ARGS.output_file_name.split('.')[0];
 
-            if (
-                os.platform() === 'linux' ||
-                os.platform() === 'darwin' ||
-                os.platform() === 'win32'
-            ) {
+            if (os.platform() === 'linux' || os.platform() === 'darwin' || os.platform() === 'win32') {
                 /* build */
                 this.buildShellOption = {
                     cmd:
@@ -45,7 +40,7 @@ export class WasmTaskProvider implements vscode.TaskProvider {
                             : (this._script.get('buildScript') as string),
                     options: {
                         executable: this._script.get('buildScript'),
-                        shellArgs: [targetName, this._wamrVersion],
+                        shellArgs: [targetName, os.platform()],
                     },
                 };
 
@@ -57,7 +52,7 @@ export class WasmTaskProvider implements vscode.TaskProvider {
                             : (this._script.get('debugScript') as string),
                     options: {
                         executable: this._script.get('debugScript'),
-                        shellArgs: [targetName, this._wamrVersion],
+                        shellArgs: [targetName],
                     },
                 };
 
@@ -69,7 +64,7 @@ export class WasmTaskProvider implements vscode.TaskProvider {
                             : (this._script.get('runScript') as string),
                     options: {
                         executable: this._script.get('runScript'),
-                        shellArgs: [targetName, this._wamrVersion],
+                        shellArgs: [targetName],
                     },
                 };
 

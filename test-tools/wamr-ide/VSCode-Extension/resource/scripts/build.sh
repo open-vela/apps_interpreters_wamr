@@ -8,5 +8,5 @@ set -e
 docker run --rm --name=wasm-toolchain-ctr \
                 -it -v "$(pwd)":/mnt \
                 --env=PROJ_PATH="$(pwd)" \
-                wasm-toolchain:$2  \
+                wasm-toolchain:1.0  \
                 /bin/bash -c "./build_wasm.sh $1"

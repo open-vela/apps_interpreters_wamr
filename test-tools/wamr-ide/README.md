@@ -37,35 +37,23 @@ under `resource/debug/bin`.
        - Ubuntu Bionic 18.04(LTS)
        ```
 
-#### 3. Load docker images from the release tar file or build docker images on the host
+#### 3. Pull docker images from the registry(recommended) or build docker images on the host
 
-##### 3.1 Load docker images from the release tar file
+##### 3.1 Pull docker images from registry
 
-From now on, for each release, we have the same version tagged docker image saved as a tar file, which you can find and download in the release.
+From now on, for each release, we have the same version tagged docker image pushed to GitHub package.
 
-You could download the tar archive files for docker images from the release, and then load them using the following commands:
+You could simply pull a certain version of docker images using the following commands:
 
 ```sh
-# download the zip or tar.gz from release depending on your platform
-# decompress and get the tar file
-
-# on Linux/MacOS, you could use tar
-tar xf wasm-toolchain-{version number}.tar.gz
-tar xf wasm-debug-server-{version number}.tar.gz
-# or you could use unzip
-unzip wasm-toolchain-{version number}.zip
-unzip wasm-debug-server-{version number}.zip
-# load wasm-toolchain
-docker load --input wasm-toolchain.tar
-# load wasm-debug-server
-docker load --input wasm-debug-server.tar
-
-# on Windows, you could use any unzip software you like
-# then loading docker images using powershell or git bash
-# load wasm-toolchain
-docker load --input ./wasm-toolchain.tar
-# load wasm-debug-server
-docker load --input ./wasm-debug-server.tar
+# pull and retag wasm-toolchain 
+docker pull ghcr.io/bytecodealliance/wasm-toolchain:{version number}
+docker tag ghcr.io/bytecodealliance/wasm-toolchain:{version number} wasm-toolchain:{version number}
+docker rmi ghcr.io/bytecodealliance/wasm-toolchain:{version number} 
+# pull and retag wasm-debug-server
+docker pull ghcr.io/bytecodealliance/wasm-debug-server:{version number}
+docker tag ghcr.io/bytecodealliance/wasm-debug-server:{version number} wasm-debug-server:{version number}
+docker rmi ghcr.io/bytecodealliance/wasm-debug-server:{version number}
 ```
 
 ##### 3.2 Build docker images on host
