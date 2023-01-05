@@ -61,6 +61,7 @@ env:
   SIMD_TEST_OPTIONS: "-s spec -b -S -P"
   THREADS_TEST_OPTIONS: "-s spec -b -p -P"
   X86_32_TARGET_TEST_OPTIONS: "-m x86_32 -P"
+  WASI_TEST_OPTIONS: "-s wasi_certification"
 
 jobs:
   build_llvm_libraries:
@@ -232,7 +233,7 @@ jobs:
         os: [ubuntu-20.04, ubuntu-22.04]
         wasi_sdk_release:
           [
-            "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-16/wasi-sdk-16.0-linux.tar.gz",
+            "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-12/wasi-sdk-12.0-linux.tar.gz",
           ]
         wabt_release:
           [
@@ -299,7 +300,7 @@ jobs:
         os: [ubuntu-20.04, ubuntu-22.04]
         wasi_sdk_release:
           [
-            "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-16/wasi-sdk-16.0-linux.tar.gz",
+            "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-12/wasi-sdk-12.0-linux.tar.gz",
           ]
         wabt_release:
           [
@@ -313,8 +314,8 @@ jobs:
         run: |
           cd /opt
           sudo wget ${{ matrix.wasi_sdk_release }}
-          sudo tar -xzf wasi-sdk-16.0-*.tar.gz
-          sudo mv wasi-sdk-16.0 wasi-sdk
+          sudo tar -xzf wasi-sdk-12.0-*.tar.gz
+          sudo mv wasi-sdk-12.0 wasi-sdk
 
       - name: download and install wabt
         run: |
@@ -322,17 +323,6 @@ jobs:
           sudo wget ${{ matrix.wabt_release }}
           sudo tar -xzf wabt-1.0.24-*.tar.gz
           sudo mv wabt-1.0.24 wabt
-
-      - name: build wasi-libc (needed for wasi-threads)
-        run: |
-          git clone --branch wasi-sdk-17 https://github.com/WebAssembly/wasi-libc
-          cd wasi-libc
-          make \
-            AR=/opt/wasi-sdk/bin/llvm-ar \
-            NM=/opt/wasi-sdk/bin/llvm-nm \
-            CC=/opt/wasi-sdk/bin/clang \
-            THREAD_MODEL=posix
-        working-directory: core/deps
 
       - name: Build Sample [basic]
         run: |
@@ -387,15 +377,7 @@ jobs:
           exit $?
         working-directory: ./samples/simple
 
-      - name: Build Sample [wasi-threads]
-        run: |
-          cd samples/wasi-threads
-          mkdir build && cd build
-          cmake -DWASI_SYSROOT=`pwd`/../../../core/deps/wasi-libc/sysroot ..
-          cmake --build . --config Release --parallel 4
-          ./iwasm wasm-apps/no_pthread.wasm
-
-  spec_test:
+  test:
     needs: [build_iwasm, build_llvm_libraries, build_wamrc]
     runs-on: ubuntu-20.04
     strategy:
@@ -408,6 +390,7 @@ jobs:
             $MULTI_MODULES_TEST_OPTIONS,
             $SIMD_TEST_OPTIONS,
             $THREADS_TEST_OPTIONS,
+            $WASI_TEST_OPTIONS,
           ]
         exclude:
           # uncompatiable modes and features
@@ -419,6 +402,9 @@ jobs:
           # aot and jit don't support multi module
           - running_mode: "aot"
             test_option: $MULTI_MODULES_TEST_OPTIONS
+          # aot is WAMR-specific while wasi-testsuite is generic
+          - running_mode: "aot"
+            test_option: $WASI_TEST_OPTIONS
           - running_mode: "jit"
             test_option: $MULTI_MODULES_TEST_OPTIONS
           # fast-jit is only tested on default mode, exclude other three
@@ -460,7 +446,7 @@ jobs:
         if: env.USE_LLVM == 'true' && steps.cache_llvm.outputs.cache-hit != 'true'
         run: echo "::error::can not get prebuilt llvm libraries" && exit 1
 
-      - name: run spec tests default and extra
+      - name: run tests
         run: ./test_wamr.sh ${{ matrix.test_option }} -t ${{ matrix.running_mode }}
         working-directory: ./tests/wamr-test-suites
 
@@ -475,7 +461,7 @@ jobs:
           sudo apt-get update &&
           sudo apt install -y g++-multilib lib32gcc-9-dev
 
-      - name: run spec tests x86_32
+      - name: run tests x86_32
         if: env.TEST_ON_X86_32 == 'true'
         run: ./test_wamr.sh ${{ env.X86_32_TARGET_TEST_OPTIONS }} ${{ matrix.test_option }} -t ${{ matrix.running_mode }}
         working-directory: ./tests/wamr-test-suites
