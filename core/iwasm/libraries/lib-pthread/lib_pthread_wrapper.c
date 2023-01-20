@@ -504,6 +504,7 @@ pthread_start_routine(void *arg)
     info_node->exec_env = exec_env;
     info_node->u.thread = exec_env->handle;
     if (!append_thread_info_node(info_node)) {
+        wasm_runtime_deinstantiate_internal(module_inst, true);
         delete_thread_info_node(info_node);
         os_cond_signal(&parent_exec_env->wait_cond);
         os_mutex_unlock(&parent_exec_env->wait_lock);
@@ -519,12 +520,14 @@ pthread_start_routine(void *arg)
 
     if (!wasm_runtime_call_indirect(exec_env, routine_args->elem_index, 1,
                                     argv)) {
-        if (wasm_runtime_get_exception(module_inst))
-            wasm_cluster_spread_exception(exec_env);
+        /* Exception has already been spread during throwing */
     }
 
     /* destroy pthread key values */
     call_key_destructor(exec_env);
+
+    /* routine exit, destroy instance */
+    wasm_runtime_deinstantiate_internal(module_inst, true);
 
     wasm_runtime_free(routine_args);
 
@@ -619,9 +622,8 @@ pthread_create_wrapper(wasm_exec_env_t exec_env,
     routine_args->module_inst = new_module_inst;
 
     os_mutex_lock(&exec_env->wait_lock);
-    ret =
-        wasm_cluster_create_thread(exec_env, new_module_inst, true,
-                                   pthread_start_routine, (void *)routine_args);
+    ret = wasm_cluster_create_thread(
+        exec_env, new_module_inst, pthread_start_routine, (void *)routine_args);
     if (ret != 0) {
         os_mutex_unlock(&exec_env->wait_lock);
         goto fail;
