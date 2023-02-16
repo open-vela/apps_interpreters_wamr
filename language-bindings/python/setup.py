@@ -8,28 +8,7 @@
 # pylint: disable=missing-function-docstring
 # pylint: disable=missing-module-docstring
 
-import pathlib
-from setuptools import setup
-from setuptools.command.develop import develop
-from setuptools.command.install import install
-from subprocess import check_call
-
-
-def build_library():
-    cur_path = pathlib.Path(__file__).parent
-    check_call(f"{cur_path}/utils/create_lib.sh".split())
-
-class PreDevelopCommand(develop):
-    """Pre-installation for development mode."""
-    def run(self):
-        build_library()
-        develop.run(self)
-
-class PreInstallCommand(install):
-    """Pre-installation for installation mode."""
-    def run(self):
-        build_library()
-        install.run(self)
+from setuptools import setup, find_packages
 
 
 with open("README.md") as f:
@@ -45,11 +24,7 @@ setup(
     long_description=readme,
     author="The WAMR Project Developers",
     author_email="hello@bytecodealliance.org",
-    url="https://github.com/bytecodealliance/wasm-micro-runtime",
+    url="https://github.com/bytecodealliance/wamr-python",
     license=license,
-    include_package_data=True,
-    cmdclass={
-        'develop': PreDevelopCommand,
-        'install': PreInstallCommand,
-    },
+    packages=["wamr"],
 )
