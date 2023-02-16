@@ -172,7 +172,6 @@ shared_memory_dec_reference(WASMModuleCommon *module)
             bh_list_remove(shared_memory_list, node);
             os_mutex_unlock(&shared_memory_list_lock);
 
-            os_mutex_destroy(&node->shared_mem_lock);
             os_mutex_destroy(&node->lock);
             wasm_runtime_free(node);
         }
@@ -201,14 +200,7 @@ shared_memory_set_memory_inst(WASMModuleCommon *module,
     node->module = module;
     node->memory_inst = memory;
     node->ref_count = 1;
-
-    if (os_mutex_init(&node->shared_mem_lock) != 0) {
-        wasm_runtime_free(node);
-        return NULL;
-    }
-
     if (os_mutex_init(&node->lock) != 0) {
-        os_mutex_destroy(&node->shared_mem_lock);
         wasm_runtime_free(node);
         return NULL;
     }
