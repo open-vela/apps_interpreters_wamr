@@ -122,11 +122,6 @@ typedef struct WASMExecEnv {
     bool thread_is_detached;
 #endif
 
-#if WASM_ENABLE_GC != 0
-    /* Current local object reference variable */
-    struct WASMLocalObjectRef *cur_local_object_ref;
-#endif
-
 #if WASM_ENABLE_DEBUG_INTERP != 0
     WASMCurrentEnvStatus *current_status;
 #endif
@@ -200,6 +195,13 @@ wasm_exec_env_create(struct WASMModuleInstanceCommon *module_inst,
 
 void
 wasm_exec_env_destroy(WASMExecEnv *exec_env);
+
+static inline bool
+wasm_exec_env_is_aux_stack_managed_by_runtime(WASMExecEnv *exec_env)
+{
+    return exec_env->aux_stack_boundary.boundary != 0
+           || exec_env->aux_stack_bottom.bottom != 0;
+}
 
 /**
  * Allocate a WASM frame from the WASM stack.
