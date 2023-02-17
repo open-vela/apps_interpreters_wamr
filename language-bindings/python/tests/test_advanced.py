@@ -12,7 +12,7 @@ import ctypes as c
 import math
 import unittest
 
-import wamr.wasmcapi.ffi as ffi
+import wamr.ffi as ffi
 
 
 # It is a module likes:
