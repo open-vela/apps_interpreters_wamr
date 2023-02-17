@@ -161,17 +161,6 @@
 #define WASM_ENABLE_LIB_PTHREAD_SEMAPHORE 0
 #endif
 
-#ifndef WASM_ENABLE_LIB_WASI_THREADS
-#define WASM_ENABLE_LIB_WASI_THREADS 0
-#endif
-
-#ifndef WASM_ENABLE_HEAP_AUX_STACK_ALLOCATION
-#define WASM_ENABLE_HEAP_AUX_STACK_ALLOCATION WASM_ENABLE_LIB_WASI_THREADS
-#elif WASM_ENABLE_HEAP_AUX_STACK_ALLOCATION == 0 \
-    && WASM_ENABLE_LIB_WASI_THREADS == 1
-#error "Heap aux stack allocation must be enabled for WASI threads"
-#endif
-
 #ifndef WASM_ENABLE_BASE_LIB
 #define WASM_ENABLE_BASE_LIB 0
 #endif
@@ -360,6 +349,13 @@
 #define APP_HEAP_SIZE_MIN (256)
 #define APP_HEAP_SIZE_MAX (512 * 1024 * 1024)
 
+/* Default min/max gc heap size of each app */
+#ifndef GC_HEAP_SIZE_DEFAULT
+#define GC_HEAP_SIZE_DEFAULT (128 * 1024)
+#endif
+#define GC_HEAP_SIZE_MIN (4 * 1024)
+#define GC_HEAP_SIZE_MAX (1024 * 1024 * 1024)
+
 /* Default wasm stack size of each app */
 #if defined(BUILD_TARGET_X86_64) || defined(BUILD_TARGET_AMD_64)
 #define DEFAULT_WASM_STACK_SIZE (16 * 1024)
@@ -431,6 +427,18 @@
 
 #ifndef WASM_ENABLE_REF_TYPES
 #define WASM_ENABLE_REF_TYPES 0
+#endif
+
+#ifndef WASM_ENABLE_GC
+#define WASM_ENABLE_GC 0
+#endif
+
+#ifndef GC_REFTYPE_MAP_SIZE_DEFAULT
+#define GC_REFTYPE_MAP_SIZE_DEFAULT 64
+#endif
+
+#ifndef GC_RTTOBJ_MAP_SIZE_DEFAULT
+#define GC_RTTOBJ_MAP_SIZE_DEFAULT 64
 #endif
 
 #ifndef WASM_ENABLE_SGX_IPFS
