@@ -111,7 +111,6 @@ notify_stale_threads_on_exception(WASMModuleInstanceCommon *module_inst)
 {
     AtomicWaitAddressArgs args = { 0 };
     uint32 i = 0, total_elem_count = 0;
-    uint64 total_elem_count_size = 0;
 
     os_mutex_lock(&shared_memory_list_lock);
 
@@ -119,15 +118,8 @@ notify_stale_threads_on_exception(WASMModuleInstanceCommon *module_inst)
     bh_hash_map_traverse(wait_map, wait_map_address_count_callback,
                          (void *)&total_elem_count);
 
-    if (!total_elem_count) {
-        os_mutex_unlock(&shared_memory_list_lock);
-        return;
-    }
-
     /* allocate memory */
-    total_elem_count_size = (uint64)sizeof(void *) * total_elem_count;
-    if (total_elem_count_size >= UINT32_MAX
-        || !(args.addr = wasm_runtime_malloc((uint32)total_elem_count_size))) {
+    if (!(args.addr = wasm_runtime_malloc(sizeof(void *) * total_elem_count))) {
         LOG_ERROR(
             "failed to allocate memory for list of atomic wait addresses");
         os_mutex_unlock(&shared_memory_list_lock);
@@ -180,7 +172,6 @@ shared_memory_dec_reference(WASMModuleCommon *module)
             bh_list_remove(shared_memory_list, node);
             os_mutex_unlock(&shared_memory_list_lock);
 
-            os_mutex_destroy(&node->shared_mem_lock);
             os_mutex_destroy(&node->lock);
             wasm_runtime_free(node);
         }
@@ -209,14 +200,7 @@ shared_memory_set_memory_inst(WASMModuleCommon *module,
     node->module = module;
     node->memory_inst = memory;
     node->ref_count = 1;
-
-    if (os_mutex_init(&node->shared_mem_lock) != 0) {
-        wasm_runtime_free(node);
-        return NULL;
-    }
-
     if (os_mutex_init(&node->lock) != 0) {
-        os_mutex_destroy(&node->shared_mem_lock);
         wasm_runtime_free(node);
         return NULL;
     }
