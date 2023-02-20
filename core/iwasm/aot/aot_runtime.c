@@ -172,7 +172,7 @@ global_instantiate(AOTModuleInstance *module_inst, AOTModule *module,
                          .global_data_linked);
                 break;
             }
-#if WASM_ENABLE_GC == 0 && WASM_ENABLE_REF_TYPES != 0
+#if WASM_ENABLE_REF_TYPES != 0
             case INIT_EXPR_TYPE_REFNULL_CONST:
             {
                 *(uint32 *)p = NULL_REF;
@@ -901,6 +901,19 @@ create_exports(AOTModuleInstance *module_inst, AOTModule *module,
     return create_export_funcs(module_inst, module, error_buf, error_buf_size);
 }
 
+#if WASM_ENABLE_LIBC_WASI != 0
+static bool
+execute_initialize_function(AOTModuleInstance *module_inst)
+{
+    AOTFunctionInstance *initialize =
+        aot_lookup_function(module_inst, "_initialize", NULL);
+
+    return !initialize
+           || aot_create_exec_env_and_call_function(module_inst, initialize, 0,
+                                                    NULL);
+}
+#endif
+
 static bool
 execute_post_inst_function(AOTModuleInstance *module_inst)
 {
@@ -1121,11 +1134,27 @@ aot_instantiate(AOTModule *module, bool is_sub_inst, uint32 stack_size,
     }
 #endif
 
-    /* Execute __post_instantiate function and start function*/
-    if (!execute_post_inst_function(module_inst)
-        || !execute_start_function(module_inst)) {
-        set_error_buf(error_buf, error_buf_size, module_inst->cur_exception);
-        goto fail;
+    if (!is_sub_inst) {
+        if (
+#if WASM_ENABLE_LIBC_WASI != 0
+            /*
+             * reactor instances may assume that _initialize will be called by
+             * the environment at most once, and that none of their other
+             * exports are accessed before that call.
+             *
+             * let the loader decide how to act if there is no _initialize
+             * in a reactor
+             */
+            !execute_initialize_function(module_inst) ||
+#endif
+            /* Execute __post_instantiate function */
+            !execute_post_inst_function(module_inst)
+            /* Execute the function in "start" section */
+            || !execute_start_function(module_inst)) {
+            set_error_buf(error_buf, error_buf_size,
+                          module_inst->cur_exception);
+            goto fail;
+        }
     }
 
 #if WASM_ENABLE_BULK_MEMORY != 0
@@ -1238,7 +1267,7 @@ aot_lookup_function(const AOTModuleInstance *module_inst, const char *name,
 
 static bool
 invoke_native_with_hw_bound_check(WASMExecEnv *exec_env, void *func_ptr,
-                                  const WASMFuncType *func_type,
+                                  const WASMType *func_type,
                                   const char *signature, void *attachment,
                                   uint32 *argv, uint32 argc, uint32 *argv_ret)
 {
@@ -1849,7 +1878,6 @@ aot_call_indirect(WASMExecEnv *exec_env, uint32 tbl_idx, uint32 table_elem_idx,
     AOTFuncType *func_type;
     void **func_ptrs = module_inst->func_ptrs, *func_ptr;
     uint32 func_type_idx, func_idx, ext_ret_count;
-    table_elem_type_t tbl_elem_val = NULL_REF;
     AOTImportFunc *import_func;
     const char *signature = NULL;
     void *attachment = NULL;
@@ -1874,18 +1902,11 @@ aot_call_indirect(WASMExecEnv *exec_env, uint32 tbl_idx, uint32 table_elem_idx,
         goto fail;
     }
 
-    tbl_elem_val = ((table_elem_type_t *)tbl_inst->elems)[table_elem_idx];
-    if (tbl_elem_val == NULL_REF) {
+    func_idx = tbl_inst->elems[table_elem_idx];
+    if (func_idx == NULL_REF) {
         aot_set_exception_with_id(module_inst, EXCE_UNINITIALIZED_ELEMENT);
         goto fail;
     }
-
-#if WASM_ENABLE_GC == 0
-    func_idx = tbl_elem_val;
-#else
-    func_idx =
-        wasm_func_obj_get_func_idx_bound((WASMFuncObjectRef)tbl_elem_val);
-#endif
 
     func_type_idx = func_type_indexes[func_idx];
     func_type = aot_module->func_types[func_type_idx];
@@ -2384,7 +2405,7 @@ aot_table_copy(AOTModuleInstance *module_inst, uint32 src_tbl_idx,
 
 void
 aot_table_fill(AOTModuleInstance *module_inst, uint32 tbl_idx, uint32 length,
-               table_elem_type_t val, uint32 data_offset)
+               uint32 val, uint32 data_offset)
 {
     AOTTableInstance *tbl_inst;
 
@@ -2403,7 +2424,7 @@ aot_table_fill(AOTModuleInstance *module_inst, uint32 tbl_idx, uint32 length,
 
 uint32
 aot_table_grow(AOTModuleInstance *module_inst, uint32 tbl_idx,
-               uint32 inc_entries, table_elem_type_t init_val)
+               uint32 inc_entries, uint32 init_val)
 {
     uint32 entry_count, i, orig_tbl_sz;
     AOTTableInstance *tbl_inst;
