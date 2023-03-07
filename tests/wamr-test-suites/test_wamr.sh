@@ -14,19 +14,16 @@ function help()
 {
     echo "test_wamr.sh [options]"
     echo "-c clean previous test results, not start test"
-    echo "-s {suite_name} test only one suite (spec|wasi_certification)"
-    echo "-m set compile target of iwasm(x86_64|x86_32|armv7_vfp|thumbv7_vfp|riscv64_lp64d|riscv64_lp64)"
-    echo "-t set compile type of iwasm(classic-interp|fast-interp|jit|aot|fast-jit|multi-tier-jit)"
+    echo "-s {suite_name} test only one suite (spec)"
+    echo "-m set compile target of iwasm(x86_64\x86_32\armv7_vfp\thumbv7_vfp\riscv64_lp64d\riscv64_lp64)"
+    echo "-t set compile type of iwasm(classic-interp\fast-interp\jit\aot\fast-jit\multi-tier-jit)"
     echo "-M enable multi module feature"
     echo "-p enable multi thread feature"
     echo "-S enable SIMD feature"
     echo "-G enable GC feature"
     echo "-X enable XIP feature"
     echo "-x test SGX"
-    echo "-w enable WASI threads"
     echo "-b use the wabt binary release package instead of compiling from the source code"
-    echo "-g build iwasm with debug version"
-    echo "-v enable GC heap verification"
     echo "-P run the spec test parallelly"
     echo "-Q enable qemu"
     echo "-F set the firmware path used by qemu"
@@ -39,15 +36,12 @@ WABT_BINARY_RELEASE="NO"
 TYPE=("classic-interp" "fast-interp" "jit" "aot" "fast-jit" "multi-tier-jit")
 #default target
 TARGET="X86_64"
-ENABLE_WASI_THREADS=0
 ENABLE_MULTI_MODULE=0
 ENABLE_MULTI_THREAD=0
 COLLECT_CODE_COVERAGE=0
 ENABLE_SIMD=0
 ENABLE_GC=0
 ENABLE_XIP=0
-ENABLE_DEBUG_VERSION=0
-ENABLE_GC_HEAP_VERIFY=0
 #unit test case arrary
 TEST_CASE_ARR=()
 SGX_OPT=""
@@ -55,9 +49,9 @@ PLATFORM=$(uname -s | tr A-Z a-z)
 PARALLELISM=0
 ENABLE_QEMU=0
 QEMU_FIRMWARE=""
-WASI_TESTSUITE_COMMIT="aca78d919355ae00af141e6741a439039615b257"
+WASI_TESTSUITE_COMMIT="1d913f28b3f0d92086d6f50405cf85768e648b54"
 
-while getopts ":s:cabgvt:m:MCpSXxwPGQF:" opt
+while getopts ":s:cabt:m:MCpSXxPGQF:" opt
 do
     OPT_PARSED="TRUE"
     case $opt in
@@ -108,10 +102,6 @@ do
         echo "set compile target of wamr" ${OPTARG}
         TARGET=${OPTARG^^} # set target to uppercase if input x86_32 or x86_64 --> X86_32 and X86_64
         ;;
-        w)
-        echo "enable WASI threads"
-        ENABLE_WASI_THREADS=1
-        ;;
         M)
         echo "enable multi module feature"
         ENABLE_MULTI_MODULE=1
@@ -135,14 +125,6 @@ do
         x)
         echo "test SGX"
         SGX_OPT="--sgx"
-        ;;
-        g)
-        echo "enable build iwasm with debug version"
-        ENABLE_DEBUG_VERSION=1
-        ;;
-        v)
-        echo "enable GC heap verification"
-        ENABLE_GC_HEAP_VERIFY=1
         ;;
         G)
         echo "enable GC feature"
@@ -184,6 +166,7 @@ readonly DATE=$(date +%Y-%m-%d_%H:%M:%S)
 readonly REPORT_DIR=${WORK_DIR}/report/${DATE}
 mkdir -p ${REPORT_DIR}
 
+# TODO: a strong assumation about a link to the WAMR project
 readonly WAMR_DIR=${WORK_DIR}/../../..
 
 if [[ ${SGX_OPT} == "--sgx" ]];then
@@ -260,19 +243,39 @@ readonly COMPILE_FLAGS=(
         "${MULTI_TIER_JIT_COMPILE_FLAGS}"
     )
 
+# TODO: with libiwasm.so only
 function unit_test()
 {
     echo "Now start unit tests"
 
     cd ${WORK_DIR}
-    rm -fr unittest-build && mkdir unittest-build
-    cd unittest-build
+    readonly UNIT_CASES="wasm-vm host-tool utils"
 
     echo "Build unit test"
     touch ${REPORT_DIR}/unit_test_report.txt
-    cmake ${WORK_DIR}/../../unit -DCOLLECT_CODE_COVERAGE=${COLLECT_CODE_COVERAGE}
-    make -j
-    make test | tee -a ${REPORT_DIR}/unit_test_report.txt
+
+    for compile_flag in "${COMPILE_FLAGS[@]}"; do
+        echo "Build unit test with compile flags with " ${compile_flag}
+
+        # keep going and do not care if it is success or not
+        make -ki clean | true
+        cmake ${compile_flag} ${WORK_DIR}/../../unit && make -j 4
+        if [ "$?" != 0 ];then
+            echo -e "build unit test failed, you may need to change wamr into dev/aot branch and ensure llvm is built"
+            exit 1
+        fi
+
+        echo ${compile_flag} >> ${REPORT_DIR}/unit_test_report.txt
+
+        for case in ${UNIT_CASES}
+        do
+            echo "run ${case} ..."
+            cd ./${case}/
+            ./${case/-/_}"_test" | tee -a ${REPORT_DIR}/unit_test_report.txt
+            cd -
+            echo "finish ${case}"
+        done
+    done
 
     echo "Finish unit tests"
 }
@@ -476,7 +479,7 @@ function spec_test()
 
     if [[ ${ENABLE_QEMU} == 1 ]]; then
         ARGS_FOR_SPEC_TEST+="--qemu "
-        ARGS_FOR_SPEC_TEST+="--qemu-firmware ${QEMU_FIRMWARE} "
+        ARGS_FOR_SPEC_TEST+="--qemu-firmware ${QEMU_FIRMWARE}"
     fi
 
     # set log directory
@@ -512,22 +515,30 @@ function wasi_test()
 
 function wasi_certification_test()
 {
-    echo  "Now start wasi certification tests"
+    echo  "Now start wasi tests"
 
     cd ${WORK_DIR}
     if [ ! -d "wasi-testsuite" ]; then
         echo "wasi not exist, clone it from github"
-        git clone -b prod/testsuite-all \
+        git clone -b prod/testsuite-base \
             --single-branch https://github.com/WebAssembly/wasi-testsuite.git
     fi
     cd wasi-testsuite
     git reset --hard ${WASI_TESTSUITE_COMMIT}
 
-    bash ../../wasi-test-script/run_wasi_tests.sh $1 $TARGET \
-        | tee -a ${REPORT_DIR}/wasi_test_report.txt
-    ret=${PIPESTATUS[0]}
+    python3 -m venv wasi-env && source wasi-env/bin/activate
+    python3 -m pip install -r test-runner/requirements.txt
+    IWASM_PATH=$(dirname ${IWASM_CMD})
+    PATH=${PATH}:${IWASM_PATH} python3 test-runner/wasi_test_runner.py \
+                -r adapters/wasm-micro-runtime.sh \
+                -t \
+                    tests/c/testsuite/ \
+                    tests/assemblyscript/testsuite/ \
+                | tee -a ${REPORT_DIR}/wasi_test_report.txt
+    exit_code=${PIPESTATUS[0]}
+    deactivate
 
-    if [[ ${ret} -ne 0 ]];then
+    if [[ ${exit_code} -ne 0 ]];then
         echo -e "\nwasi tests FAILED" | tee -a ${REPORT_DIR}/wasi_test_report.txt
         exit 1
     fi
@@ -542,6 +553,7 @@ function polybench_test()
     if [[ $1 == "aot" || $1 == "jit" ]];then
         ./build.sh AOT ${SGX_OPT}
         ./test_aot.sh $1 ${SGX_OPT}
+
     else
         ./build.sh
         ./test_interp.sh ${SGX_OPT}
@@ -559,6 +571,7 @@ function libsodium_test()
     if [[ $1 == "aot" || $1 == "jit" ]];then
         ./build.sh ${SGX_OPT}
         ./test_aot.sh $1 ${SGX_OPT}
+
     else
         ./test_interp.sh ${SGX_OPT}
     fi
@@ -578,13 +591,14 @@ function standalone_test()
 {
     cd ${WORK_DIR}/../../standalone
 
-    args="--$1"
+    args=""
 
+    [[ $1 == "aot" ]] && args="$args --aot" || args="$args --no-aot"
     [[ ${SGX_OPT} == "--sgx" ]] && args="$args --sgx" || args="$args --no-sgx"
 
-    [[ ${ENABLE_MULTI_THREAD} == 1 ]] && args="$args --thread" && args="$args --no-thread"
-
-    [[ ${ENABLE_SIMD} == 1 ]] && args="$args --simd" && args="$args --no-simd"
+    if [[ ${ENABLE_MULTI_THREAD} == 1 ]];then
+        args="$args --thread"
+    fi
 
     ./standalone.sh $args | tee ${REPORT_DIR}/standalone_$1_test_report.txt
 }
@@ -631,7 +645,7 @@ function build_wamrc()
         && ./build_llvm.sh \
         && if [ -d build ]; then rm -r build/*; else mkdir build; fi \
         && cd build \
-        && cmake .. -DCOLLECT_CODE_COVERAGE=${COLLECT_CODE_COVERAGE} \
+        && cmake .. \
         && make -j 4
 }
 
@@ -644,31 +658,48 @@ function build_wamrc()
 
 function collect_coverage()
 {
-    if [[ ${COLLECT_CODE_COVERAGE} == 1 ]]; then
-        ln -sf ${WORK_DIR}/../spec-test-script/collect_coverage.sh ${WORK_DIR}
-
-        CODE_COV_FILE=""
-        if [[ -z "${COV_FILE}" ]]; then
-            CODE_COV_FILE="${WORK_DIR}/wamr.lcov"
-        else
-            CODE_COV_FILE="${COV_FILE}"
-        fi
-
-        pushd ${WORK_DIR} > /dev/null 2>&1
-        echo "Collect code coverage of iwasm"
-        ./collect_coverage.sh ${CODE_COV_FILE} ${IWASM_LINUX_ROOT_DIR}/build
-        if [[ $1 == "llvm-aot" ]]; then
-            echo "Collect code coverage of wamrc"
-            ./collect_coverage.sh ${CODE_COV_FILE} ${WAMR_DIR}/wamr-compiler/build
-        fi
-        for suite in "${TEST_CASE_ARR[@]}"; do
-            if [[ ${suite} = "unit" ]]; then
-                echo "Collect code coverage of unit test"
-                ./collect_coverage.sh ${CODE_COV_FILE} ${WORK_DIR}/unittest-build
-                break
+    if [[ ${COLLECT_CODE_COVERAGE} == 1 ]];then
+        cd ${IWASM_LINUX_ROOT_DIR}/build
+        # collect all code coverage data
+        lcov -o iwasm.lcov -c -d . \
+            --rc lcov_branch_coverage=1
+        # extract code coverage data of WAMR source files
+        lcov -r iwasm.lcov -o iwasm.lcov \
+            --rc lcov_branch_coverage=1 \
+            "*/usr/*" "*/_deps/*" "*/deps/*" "*/tests/unit/*" \
+            "*/llvm/include/*" "*/include/llvm/*"
+        if [[ -s iwasm.lcov ]];then
+            if [[ -s ${WORK_DIR}/wamr.lcov ]];then
+                # merge code coverage data
+                lcov --rc lcov_branch_coverage=1 \
+                    --add-tracefile iwasm.lcov \
+                    -a ${WORK_DIR}/wamr.lcov \
+                    -o wamr.lcov
+                # backup the original lcov file
+                cp -a ${WORK_DIR}/wamr.lcov ${WORK_DIR}/wamr.lcov_old
+                # replace the lcov file
+                cp -a wamr.lcov ${WORK_DIR}/wamr.lcov
+            else
+                cp -a iwasm.lcov ${WORK_DIR}/wamr.lcov
             fi
-        done
-        popd > /dev/null 2>&1
+            # get ignored prefix path
+            dir=$(dirname ${WAMR_DIR}/../..)
+            pushd ${dir} >/dev/null 2>&1
+            full_path=${PWD}
+            popd >/dev/null 2>&1
+            echo ${full_path}
+            # generate html output for merged code coverage data
+            rm -fr ${WORK_DIR}/wamr-lcov
+            genhtml -t "WAMR code coverage" \
+                --rc lcov_branch_coverage=1 --prefix=${full_path}\
+                -o ${WORK_DIR}/wamr-lcov \
+                ${WORK_DIR}/wamr.lcov
+            cd ${WORK_DIR}
+            rm -f wamr-lcov.zip && zip -r -q -o wamr-lcov.zip wamr-lcov
+            cd ..
+        else
+            echo "generate code coverage html failed"
+        fi
     else
         echo "code coverage isn't collected"
     fi
@@ -703,18 +734,6 @@ function trigger()
         EXTRA_COMPILE_FLAGS+=" -DWAMR_BUILD_GC=1"
         EXTRA_COMPILE_FLAGS+=" -DWAMR_BUILD_REF_TYPES=1"
         EXTRA_COMPILE_FLAGS+=" -DWAMR_BUILD_BULK_MEMORY=1"
-    fi
-
-    if [[ ${ENABLE_DEBUG_VERSION} == 1 ]]; then
-        EXTRA_COMPILE_FLAGS+=" -DCMAKE_BUILD_TYPE=Debug"
-    fi
-
-    if [[ ${ENABLE_GC_HEAP_VERIFY} == 1 ]]; then
-        EXTRA_COMPILE_FLAGS+=" -DWAMR_BUILD_GC_HEAP_VERIFY=1"
-    fi
-
-    if [[ ${ENABLE_WASI_THREADS} == 1 ]]; then
-        EXTRA_COMPILE_FLAGS+=" -DWAMR_BUILD_LIB_WASI_THREADS=1"
     fi
 
     for t in "${TYPE[@]}"; do
@@ -764,6 +783,7 @@ function trigger()
                 echo "work in orc jit eager compilation mode"
                 BUILD_FLAGS="$ORC_EAGER_JIT_COMPILE_FLAGS $EXTRA_COMPILE_FLAGS"
                 build_iwasm_with_cfg $BUILD_FLAGS
+                build_wamrc
                 for suite in "${TEST_CASE_ARR[@]}"; do
                     $suite"_test" jit
                 done
@@ -772,6 +792,7 @@ function trigger()
                 echo "work in orc jit lazy compilation mode"
                 BUILD_FLAGS="$ORC_EAGER_JIT_COMPILE_FLAGS $EXTRA_COMPILE_FLAGS"
                 build_iwasm_with_cfg $BUILD_FLAGS
+                build_wamrc
                 for suite in "${TEST_CASE_ARR[@]}"; do
                     $suite"_test" jit
                 done
@@ -822,19 +843,17 @@ function trigger()
 }
 
 # if collect code coverage, ignore -s, test all test cases.
-if [[ $TEST_CASE_ARR ]];then
+if [[ $TEST_CASE_ARR && $COLLECT_CODE_COVERAGE != 1 ]];then
     trigger || (echo "TEST FAILED"; exit 1)
 else
     # test all suite, ignore polybench and libsodium because of long time cost
-    TEST_CASE_ARR=("spec")
-    : '
+    TEST_CASE_ARR=("sightglass" "spec" "wasi" "malformed" "standalone")
     if [[ $COLLECT_CODE_COVERAGE == 1 ]];then
         # add polybench if collecting code coverage data
         TEST_CASE_ARR+=("polybench")
         # add libsodium if needed, which takes long time to run
-        TEST_CASE_ARR+=("libsodium")
+        #TEST_CASE_ARR+=("libsodium")
     fi
-    '
     trigger || (echo "TEST FAILED"; exit 1)
     # Add more suites here
 fi
