@@ -54,9 +54,7 @@ function(COMPILE_WITH_CLANG SOURCE_FILE)
   target_link_options(${MAIN_TARGET_NAME} PRIVATE
     LINKER:--export=__heap_base
     LINKER:--export=__data_end
-    LINKER:--export=malloc
-    LINKER:--export=free
-    LINKER:--shared-memory,--max-memory=10485760
+    LINKER:--shared-memory,--max-memory=196608
     LINKER:--no-check-features
     LINKER:--allow-undefined
   )
