@@ -19,6 +19,8 @@
 extern "C" {
 #endif
 
+#define EXCEPTION_BUF_LEN 128
+
 typedef struct WASMModuleInstance WASMModuleInstance;
 typedef struct WASMFunctionInstance WASMFunctionInstance;
 typedef struct WASMMemoryInstance WASMMemoryInstance;
@@ -115,17 +117,12 @@ struct WASMMemoryInstance {
 };
 
 struct WASMTableInstance {
-#if WASM_ENABLE_GC != 0
-    /* The element type */
-    uint8 elem_type;
-    WASMRefType *elem_ref_type;
-#endif
     /* Current size */
     uint32 cur_size;
     /* Maximum size */
     uint32 max_size;
     /* Table elements */
-    table_elem_type_t elems[1];
+    uint32 elems[1];
 };
 
 struct WASMGlobalInstance {
@@ -137,9 +134,6 @@ struct WASMGlobalInstance {
     uint32 data_offset;
     /* initial value */
     WASMValue initial_value;
-#if WASM_ENABLE_GC != 0
-    WASMRefType *ref_type;
-#endif
 #if WASM_ENABLE_MULTI_MODULE != 0
     /* just for import, keep the reference here */
     WASMModuleInstance *import_module_inst;
@@ -231,12 +225,6 @@ typedef struct WASMModuleInstanceExtra {
     CApiFuncImport *c_api_func_imports;
     RunningMode running_mode;
 
-#if WASM_ENABLE_SHARED_MEMORY != 0
-    /* lock for shared memory atomic operations */
-    korp_mutex mem_lock;
-    bool mem_lock_inited;
-#endif
-
 #if WASM_ENABLE_MULTI_MODULE != 0
     bh_list sub_module_inst_list_head;
     bh_list *sub_module_inst_list;
@@ -244,19 +232,12 @@ typedef struct WASMModuleInstanceExtra {
     WASMTableInstance **table_insts_linked;
 #endif
 
-#if WASM_ENABLE_GC != 0
-    /* The gc heap memory pool */
-    uint8 *gc_heap_pool;
-    /* The gc heap created */
-    void *gc_heap_handle;
-#endif
-
 #if WASM_ENABLE_MEMORY_PROFILING != 0
     uint32 max_aux_stack_used;
 #endif
 
-#if WASM_ENABLE_DEBUG_INTERP != 0                    \
-    || (WASM_ENABLE_FAST_JIT != 0 && WASM_ENABLE_JIT \
+#if WASM_ENABLE_DEBUG_INTERP != 0                         \
+    || (WASM_ENABLE_FAST_JIT != 0 && WASM_ENABLE_JIT != 0 \
         && WASM_ENABLE_LAZY_JIT != 0)
     WASMModuleInstance *next;
 #endif
@@ -303,7 +284,7 @@ struct WASMModuleInstance {
     DefPointer(WASMExportTabInstance *, export_tables);
 
     /* The exception buffer of wasm interpreter for current thread. */
-    char cur_exception[128];
+    char cur_exception[EXCEPTION_BUF_LEN];
 
     /* The WASM module or AOT module, for AOTModuleInstance,
        it denotes `AOTModule *` */
@@ -465,6 +446,15 @@ wasm_set_exception_with_id(WASMModuleInstance *module_inst, uint32 id);
 const char *
 wasm_get_exception(WASMModuleInstance *module);
 
+/**
+ * @brief Copy exception in buffer passed as parameter. Thread-safe version of
+ * `wasm_get_exception()`
+ * @note Buffer size must be no smaller than EXCEPTION_BUF_LEN
+ * @return true if exception found
+ */
+bool
+wasm_copy_exception(WASMModuleInstance *module_inst, char *exception_buf);
+
 uint32
 wasm_module_malloc(WASMModuleInstance *module_inst, uint32 size,
                    void **p_native_addr);
@@ -515,7 +505,7 @@ void
 wasm_get_module_inst_mem_consumption(const WASMModuleInstance *module,
                                      WASMModuleInstMemConsumption *mem_conspn);
 
-#if WASM_ENABLE_REF_TYPES != 0 || WASM_ENABLE_GC != 0
+#if WASM_ENABLE_REF_TYPES != 0
 static inline bool
 wasm_elem_is_active(uint32 mode)
 {
@@ -536,17 +526,8 @@ wasm_elem_is_declarative(uint32 mode)
 
 bool
 wasm_enlarge_table(WASMModuleInstance *module_inst, uint32 table_idx,
-                   uint32 inc_entries, table_elem_type_t init_val);
-#endif /* WASM_ENABLE_REF_TYPES != 0 || WASM_ENABLE_GC != 0 */
-
-#if WASM_ENABLE_GC != 0
-void *
-wasm_create_func_obj(WASMModuleInstance *module_inst, uint32 func_idx,
-                     bool throw_exce, char *error_buf, uint32 error_buf_size);
-
-bool
-wasm_traverse_gc_rootset(WASMExecEnv *exec_env, void *heap);
-#endif
+                   uint32 inc_entries, uint32 init_val);
+#endif /* WASM_ENABLE_REF_TYPES != 0 */
 
 static inline WASMTableInstance *
 wasm_get_table_inst(const WASMModuleInstance *module_inst, uint32 tbl_idx)
