@@ -20,7 +20,7 @@ extern "C" {
 #endif
 
 typedef InitializerExpression AOTInitExpr;
-typedef WASMFuncType AOTFuncType;
+typedef WASMType AOTFuncType;
 typedef WASMExport AOTExport;
 
 #if WASM_ENABLE_DEBUG_AOT != 0
