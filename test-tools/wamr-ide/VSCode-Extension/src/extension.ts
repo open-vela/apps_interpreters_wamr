@@ -40,7 +40,7 @@ let isWasmProject = false;
 export async function activate(context: vscode.ExtensionContext) {
     const extensionPath = context.extensionPath;
     const osPlatform = os.platform();
-    const wamrVersion = getWAMRExtensionVersion(context.extensionPath);
+    const wamrVersion = getWAMRExtensionVersion(context);
     const typeMap = new Map<string, string>();
     const scriptMap = new Map<string, string>();
     /* set relative path of build.bat|sh script */
@@ -170,7 +170,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     /* register debug configuration */
-    wasmDebugConfigProvider = new WasmDebugConfigurationProvider(context.extensionPath);
+    wasmDebugConfigProvider = new WasmDebugConfigurationProvider();
 
     vscode.debug.registerDebugConfigurationProvider(
         'wamr-debug',
@@ -409,13 +409,13 @@ export async function activate(context: vscode.ExtensionContext) {
 
             /* we should check again whether the user installed lldb, as this can be skipped during activation */
             try {
-                if (!isLLDBInstalled(context.extensionPath)) {
+                if (!isLLDBInstalled(context)) {
                     /**NOTE - if users select to skip install,
                      *        we should return rather than continue
                      *        the execution
                      */
                     if (
-                        (await promptInstallLLDB(context.extensionPath)) ===
+                        (await promptInstallLLDB(context)) ===
                         SelectionOfPrompt.skip
                     ) {
                         return;
@@ -772,8 +772,8 @@ export async function activate(context: vscode.ExtensionContext) {
     );
 
     try {
-        if (!isLLDBInstalled(context.extensionPath)) {
-            await promptInstallLLDB(context.extensionPath);
+        if (!isLLDBInstalled(context)) {
+            await promptInstallLLDB(context);
         }
 
         if (

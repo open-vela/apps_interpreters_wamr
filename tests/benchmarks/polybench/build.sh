@@ -3,8 +3,6 @@
 # Copyright (C) 2019 Intel Corporation.  All rights reserved.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-PLATFORM=$(uname -s | tr A-Z a-z)
-
 OUT_DIR=$PWD/out
 WAMRC_CMD=$PWD/../../../wamr-compiler/build/wamrc
 POLYBENCH_CASES="datamining linear-algebra medley stencils"
@@ -42,12 +40,6 @@ do
         echo "Compile ${file_name%.*}.wasm into ${file_name%.*}.aot"
         ${WAMRC_CMD} -o ${OUT_DIR}/${file_name%.*}.aot \
                 ${OUT_DIR}/${file_name%.*}.wasm
-
-        if [[ ${PLATFORM} == "linux" ]]; then
-            echo "Compile ${file_name%.*}.wasm into ${file_name%.*}_segue.aot"
-            ${WAMRC_CMD} --enable-segue -o ${OUT_DIR}/${file_name%.*}_segue.aot \
-                    ${OUT_DIR}/${file_name%.*}.wasm
-        fi
     done
 done
 

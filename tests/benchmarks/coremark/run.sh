@@ -3,21 +3,14 @@
 # Copyright (C) 2019 Intel Corporation.  All rights reserved.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-PLATFORM=$(uname -s | tr A-Z a-z)
-
-IWASM="../../../product-mini/platforms/${PLATFORM}/build/iwasm"
+IWASM="../../../product-mini/platforms/linux/build/iwasm"
 WAMRC="../../../wamr-compiler/build/wamrc"
 
 echo "Run coremark with native .."
 ./coremark.exe
 
-echo "Run coremark with iwasm aot mode .."
+echo "Run coremark with iwasm mode .."
 ${IWASM} coremark.aot
 
-if [[ ${PLATFORM} == "linux" ]]; then
-    echo "Run coremark with iwasm aot-segue mode .."
-    ${IWASM} coremark_segue.aot
-fi
-
-echo "Run coremark with iwasm interpreter mode .."
+echo "Run coremakr with iwasm interpreter .."
 ${IWASM} coremark.wasm
