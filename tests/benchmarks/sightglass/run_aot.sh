@@ -36,11 +36,7 @@ echo "Start to run cases, the result is written to report.txt"
 
 #run benchmarks
 cd $OUT_DIR
-if [[ ${PLATFORM} == "linux" ]]; then
-    echo -en "\t\t\t\t\t  native\tiwasm-aot\tiwasm-aot-segue\n" >> $REPORT
-else
-    echo -en "\t\t\t\t\t  native\tiwasm-aot\n" >> $REPORT
-fi
+echo -en "\t\t\t\t\t  native\tiwasm-aot\n" >> $REPORT
 
 for t in $SHOOTOUT_CASES
 do
@@ -53,12 +49,6 @@ do
     echo "run $t with iwasm aot .."
     echo -en "\t" >> $REPORT
     $TIME -f "real-%e-time" $IWASM_CMD ${t}.aot 2>&1 | grep "real-.*-time" | awk -F '-' '{ORS=""; print $2}' >> $REPORT
-
-    if [[ ${PLATFORM} == "linux" ]]; then
-        echo "run $t with iwasm aot segue .."
-        echo -en "\t" >> $REPORT
-        $TIME -f "real-%e-time" $IWASM_CMD ${t}_segue.aot 2>&1 | grep "real-.*-time" | awk -F '-' '{ORS=""; print $2}' >> $REPORT
-    fi
 
     echo -en "\n" >> $REPORT
 done

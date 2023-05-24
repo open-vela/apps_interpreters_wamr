@@ -36,14 +36,14 @@ function getLLDBUnzipFilePath(destinationFolder: string, filename: string) {
 }
 
 export function getWAMRExtensionVersion(
-    extensionPath: string
+    context: vscode.ExtensionContext
 ): string {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    return require(path.join(extensionPath, 'package.json')).version;
+    return require(path.join(context.extensionPath, 'package.json')).version;
 }
 
-function getLLDBDownloadUrl(extensionPath: string): string {
-    const wamrVersion = getWAMRExtensionVersion(extensionPath);
+function getLLDBDownloadUrl(context: vscode.ExtensionContext): string {
+    const wamrVersion = getWAMRExtensionVersion(context);
     const lldbOsUrlSuffix = LLDB_OS_DOWNLOAD_URL_SUFFIX_MAP[os.platform()];
 
     if (!lldbOsUrlSuffix) {
@@ -53,7 +53,8 @@ function getLLDBDownloadUrl(extensionPath: string): string {
     return `https://github.com/bytecodealliance/wasm-micro-runtime/releases/download/WAMR-${wamrVersion}/wamr-lldb-${wamrVersion}-${lldbOsUrlSuffix}.zip`;
 }
 
-export function isLLDBInstalled(extensionPath: string): boolean {
+export function isLLDBInstalled(context: vscode.ExtensionContext): boolean {
+    const extensionPath = context.extensionPath;
     const lldbOSDir = os.platform();
     const lldbBinaryPath = path.join(
         extensionPath,
@@ -66,8 +67,9 @@ export function isLLDBInstalled(extensionPath: string): boolean {
 }
 
 export async function promptInstallLLDB(
-    extensionPath: string
+    context: vscode.ExtensionContext
 ): Promise<SelectionOfPrompt> {
+    const extensionPath = context.extensionPath;
 
     const response = await vscode.window.showWarningMessage(
         'No LLDB instance found. Setup now?',
@@ -79,15 +81,7 @@ export async function promptInstallLLDB(
         return response;
     }
 
-    await downloadLldb(extensionPath);
-
-    return SelectionOfPrompt.setUp;
-}
-
-export async function downloadLldb(
-    extensionPath: string
-): Promise<void> {
-    const downloadUrl = getLLDBDownloadUrl(extensionPath);
+    const downloadUrl = getLLDBDownloadUrl(context);
     const destinationDir = os.platform();
 
     if (!downloadUrl) {
@@ -121,4 +115,5 @@ export async function downloadLldb(
 
     // Remove the bundle.zip
     fs.unlinkSync(lldbZipPath);
+    return SelectionOfPrompt.setUp;
 }
