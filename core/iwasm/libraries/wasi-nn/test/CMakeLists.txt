@@ -8,7 +8,7 @@ project (iwasm)
 set (CMAKE_VERBOSE_MAKEFILE OFF)
 # Reset default linker flags
 set (CMAKE_C_STANDARD 99)
-set (CMAKE_CXX_STANDARD 17)
+set (CMAKE_CXX_STANDARD 14)
 set (CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "")
 set (CMAKE_SHARED_LIBRARY_LINK_CXX_FLAGS "")
 
@@ -162,7 +162,7 @@ add_executable (iwasm ${WAMR_ROOT_DIR}/product-mini/platforms/${WAMR_BUILD_PLATF
 
 install (TARGETS iwasm DESTINATION bin)
 
-target_link_libraries (iwasm vmlib ${LLVM_AVAILABLE_LIBS} ${UV_A_LIBS} ${WASI_NN_LIBS} -lm -ldl -lpthread)
+target_link_libraries (iwasm vmlib ${LLVM_AVAILABLE_LIBS} ${UV_A_LIBS} ${TENSORFLOW_LIB} -lm -ldl -lpthread)
 
 add_library (libiwasm SHARED ${WAMR_RUNTIME_LIB_SOURCE})
 

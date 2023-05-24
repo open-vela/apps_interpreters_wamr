@@ -4,9 +4,4 @@ node_modules
 .vscode-test/
 *.vsix
 package-lock.json
-.vscode
-resource/debug/**
-!resource/debug/darwin/.placeholder
-!resource/debug/linux/.placeholder
-!resource/debug/windows/.placeholder
-resource/test/test.wasm
+src/test

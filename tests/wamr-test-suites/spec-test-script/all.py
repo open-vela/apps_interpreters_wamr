@@ -73,8 +73,7 @@ def ignore_the_case(
     if not multi_module_flag and case_name in ["imports", "linking"]:
         return True
 
-    # Note: x87 doesn't preserve sNaN and makes some relevant tests fail.
-    if "i386" == target and case_name in ["float_exprs", "conversions"]:
+    if "i386" == target and case_name in ["float_exprs"]:
         return True
 
     if gc_flag:

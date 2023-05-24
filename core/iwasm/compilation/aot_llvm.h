@@ -153,8 +153,9 @@ typedef struct AOTMemInfo {
 typedef struct AOTFuncContext {
     AOTFunc *aot_func;
     LLVMValueRef func;
-    LLVMValueRef precheck_func;
     LLVMTypeRef func_type;
+    /* LLVM module for this function, note that in LAZY JIT mode,
+       each aot function belongs to an individual module */
     LLVMModuleRef module;
     AOTBlockStack block_stack;
 
@@ -166,6 +167,7 @@ typedef struct AOTFuncContext {
     LLVMValueRef aux_stack_bound;
     LLVMValueRef aux_stack_bottom;
     LLVMValueRef native_symbol;
+    LLVMValueRef last_alloca;
     LLVMValueRef func_ptrs;
 
     AOTMemInfo *mem_info;
@@ -182,9 +184,6 @@ typedef struct AOTFuncContext {
 #if WASM_ENABLE_DEBUG_AOT != 0
     LLVMMetadataRef debug_func;
 #endif
-
-    unsigned int stack_consumption_for_func_call;
-
     LLVMValueRef locals[1];
 } AOTFuncContext;
 
@@ -214,14 +213,6 @@ typedef struct AOTLLVMTypes {
     LLVMTypeRef i64x2_vec_type;
     LLVMTypeRef f32x4_vec_type;
     LLVMTypeRef f64x2_vec_type;
-
-    LLVMTypeRef int8_ptr_type_gs;
-    LLVMTypeRef int16_ptr_type_gs;
-    LLVMTypeRef int32_ptr_type_gs;
-    LLVMTypeRef int64_ptr_type_gs;
-    LLVMTypeRef float32_ptr_type_gs;
-    LLVMTypeRef float64_ptr_type_gs;
-    LLVMTypeRef v128_ptr_type_gs;
 
     LLVMTypeRef i1x2_vec_type;
 
@@ -350,25 +341,6 @@ typedef struct AOTCompContext {
     /* Disable LLVM link time optimization */
     bool disable_llvm_lto;
 
-    /* Enable LLVM PGO (Profile-Guided Optimization) */
-    bool enable_llvm_pgo;
-
-    /* Use profile file collected by LLVM PGO */
-    char *use_prof_file;
-
-    /* Enable to use segument register as the base addr
-       of linear memory for load/store operations */
-    bool enable_segue_i32_load;
-    bool enable_segue_i64_load;
-    bool enable_segue_f32_load;
-    bool enable_segue_f64_load;
-    bool enable_segue_v128_load;
-    bool enable_segue_i32_store;
-    bool enable_segue_i64_store;
-    bool enable_segue_f32_store;
-    bool enable_segue_f64_store;
-    bool enable_segue_v128_store;
-
     /* Whether optimize the JITed code */
     bool optimize;
 
@@ -380,11 +352,6 @@ typedef struct AOTCompContext {
 
     /* LLVM floating-point exception behavior metadata */
     LLVMValueRef fp_exception_behavior;
-
-    /* a global array to store stack sizes */
-    LLVMTypeRef stack_sizes_type;
-    LLVMValueRef stack_sizes;
-    uint32 *jit_stack_sizes; /* for JIT */
 
     /* LLVM data types */
     AOTLLVMTypes basic_types;
@@ -414,9 +381,6 @@ typedef struct AOTCompContext {
      * file for some architecture (such as arc) */
     const char *external_asm_compiler;
     const char *asm_compiler_flags;
-
-    const char *stack_usage_file;
-    char stack_usage_temp_file[64];
 } AOTCompContext;
 
 enum {
@@ -443,15 +407,12 @@ typedef struct AOTCompOption {
     bool enable_aux_stack_frame;
     bool disable_llvm_intrinsics;
     bool disable_llvm_lto;
-    bool enable_llvm_pgo;
     bool enable_stack_estimation;
-    char *use_prof_file;
     uint32 opt_level;
     uint32 size_level;
     uint32 output_format;
     uint32 bounds_checks;
     uint32 stack_bounds_checks;
-    uint32 segue_flags;
     char **custom_sections;
     uint32 custom_sections_count;
     const char *stack_usage_file;
@@ -520,8 +481,8 @@ void
 aot_checked_addr_list_destroy(AOTFuncContext *func_ctx);
 
 bool
-aot_build_zero_function_ret(const AOTCompContext *comp_ctx,
-                            AOTFuncContext *func_ctx, AOTFuncType *func_type);
+aot_build_zero_function_ret(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
+                            AOTFuncType *func_type);
 
 LLVMValueRef
 aot_call_llvm_intrinsic(const AOTCompContext *comp_ctx,
@@ -557,20 +518,6 @@ aot_apply_llvm_new_pass_manager(AOTCompContext *comp_ctx, LLVMModuleRef module);
 
 void
 aot_handle_llvm_errmsg(const char *string, LLVMErrorRef err);
-
-char *
-aot_compress_aot_func_names(AOTCompContext *comp_ctx, uint32 *p_size);
-
-bool
-aot_set_cond_br_weights(AOTCompContext *comp_ctx, LLVMValueRef cond_br,
-                        int32 weights_true, int32 weights_false);
-
-bool
-aot_target_precheck_can_use_musttail(const AOTCompContext *comp_ctx);
-
-unsigned int
-aot_estimate_stack_usage_for_function_call(const AOTCompContext *comp_ctx,
-                                           const AOTFuncType *callee_func_type);
 
 #ifdef __cplusplus
 } /* end of extern "C" */
