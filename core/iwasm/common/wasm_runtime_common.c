@@ -133,7 +133,7 @@ static JitCompOptions jit_options = { 0 };
 #endif
 
 #if WASM_ENABLE_JIT != 0
-static LLVMJITOptions llvm_jit_options = { 3, 3 };
+static LLVMJITOptions llvm_jit_options = { 3, 3, 0 };
 #endif
 
 #if WASM_ENABLE_GC != 0
@@ -573,6 +573,7 @@ wasm_runtime_full_init(RuntimeInitArgs *init_args)
 #if WASM_ENABLE_JIT != 0
     llvm_jit_options.size_level = init_args->llvm_jit_size_level;
     llvm_jit_options.opt_level = init_args->llvm_jit_opt_level;
+    llvm_jit_options.segue_flags = init_args->segue_flags;
 #endif
 
     if (!wasm_runtime_env_init()) {
