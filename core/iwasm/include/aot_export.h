@@ -20,7 +20,7 @@ struct AOTCompContext;
 typedef struct AOTCompContext *aot_comp_context_t;
 
 aot_comp_data_t
-aot_create_comp_data(void *wasm_module);
+aot_create_comp_data(void *wasm_module, bool gc_enabled);
 
 void
 aot_destroy_comp_data(aot_comp_data_t comp_data);
@@ -57,6 +57,7 @@ typedef struct AOTCompOption {
     bool disable_llvm_lto;
     bool enable_llvm_pgo;
     bool enable_stack_estimation;
+    bool enable_gc;
     char *use_prof_file;
     uint32_t opt_level;
     uint32_t size_level;
