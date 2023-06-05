@@ -187,10 +187,8 @@ get_file_header_size()
 static uint32
 get_string_size(AOTCompContext *comp_ctx, const char *s)
 {
-    /* string size (2 bytes) + string content */
-    return (uint32)sizeof(uint16) + (uint32)strlen(s) +
-           /* emit string with '\0' only in XIP mode */
-           (comp_ctx->is_indirect_mode ? 1 : 0);
+    /* string size (2 bytes) + string content + '\0' */
+    return (uint32)sizeof(uint16) + (uint32)strlen(s) + 1;
 }
 
 static uint32
@@ -259,7 +257,8 @@ get_mem_info_size(AOTCompData *comp_data)
 }
 
 static uint32
-get_table_init_data_size(AOTTableInitData *table_init_data)
+get_table_init_data_size(AOTCompContext *comp_ctx,
+                         AOTTableInitData *table_init_data)
 {
     /*
      * mode (4 bytes), elem_type (4 bytes), do not need is_dropped field
@@ -270,11 +269,13 @@ get_table_init_data_size(AOTTableInitData *table_init_data)
      */
     return (uint32)(sizeof(uint32) * 2 + sizeof(uint32) + sizeof(uint32)
                     + sizeof(uint64) + sizeof(uint32)
-                    + sizeof(uint32) * table_init_data->func_index_count);
+                    + comp_ctx->pointer_size
+                          * table_init_data->func_index_count);
 }
 
 static uint32
-get_table_init_data_list_size(AOTTableInitData **table_init_data_list,
+get_table_init_data_list_size(AOTCompContext *comp_ctx,
+                              AOTTableInitData **table_init_data_list,
                               uint32 table_init_data_count)
 {
     /*
@@ -287,7 +288,7 @@ get_table_init_data_list_size(AOTTableInitData **table_init_data_list,
      * |                     | U32 offset.init_expr_type
      * |                     | U64 offset.u.i64
      * |                     | U32 func_index_count
-     * |                     | U32[func_index_count]
+     * |                     | U32/U64 [func_index_count]
      * ------------------------------
      */
     AOTTableInitData **table_init_data = table_init_data_list;
@@ -297,7 +298,7 @@ get_table_init_data_list_size(AOTTableInitData **table_init_data_list,
 
     for (i = 0; i < table_init_data_count; i++, table_init_data++) {
         size = align_uint(size, 4);
-        size += get_table_init_data_size(*table_init_data);
+        size += get_table_init_data_size(comp_ctx, *table_init_data);
     }
     return size;
 }
@@ -339,7 +340,7 @@ get_table_size(AOTCompData *comp_data)
 }
 
 static uint32
-get_table_info_size(AOTCompData *comp_data)
+get_table_info_size(AOTCompContext *comp_ctx, AOTCompData *comp_data)
 {
     /*
      * ------------------------------
@@ -363,7 +364,8 @@ get_table_info_size(AOTCompData *comp_data)
      * ------------------------------
      */
     return get_import_table_size(comp_data) + get_table_size(comp_data)
-           + get_table_init_data_list_size(comp_data->table_init_data_list,
+           + get_table_init_data_list_size(comp_ctx,
+                                           comp_data->table_init_data_list,
                                            comp_data->table_init_data_count);
 }
 
@@ -538,7 +540,7 @@ get_init_data_section_size(AOTCompContext *comp_ctx, AOTCompData *comp_data,
     size += get_mem_info_size(comp_data);
 
     size = align_uint(size, 4);
-    size += get_table_info_size(comp_data);
+    size += get_table_info_size(comp_ctx, comp_data);
 
     size = align_uint(size, 4);
     size += get_func_type_info_size(comp_data);
@@ -1078,17 +1080,16 @@ static union {
         offset += len;                \
     } while (0)
 
+/* Emit string with '\0'
+ */
 #define EMIT_STR(s)                                   \
     do {                                              \
-        uint32 str_len = (uint32)strlen(s);           \
+        uint32 str_len = (uint32)strlen(s) + 1;       \
         if (str_len > INT16_MAX) {                    \
             aot_set_last_error("emit string failed: " \
                                "string too long");    \
             return false;                             \
         }                                             \
-        if (comp_ctx->is_indirect_mode)               \
-            /* emit '\0' only in XIP mode */          \
-            str_len++;                                \
         EMIT_U16(str_len);                            \
         EMIT_BUF(s, str_len);                         \
     } while (0)
@@ -1480,11 +1481,18 @@ aot_emit_table_info(uint8 *buf, uint8 *buf_end, uint32 *p_offset,
         EMIT_U32(init_datas[i]->offset.init_expr_type);
         EMIT_U64(init_datas[i]->offset.u.i64);
         EMIT_U32(init_datas[i]->func_index_count);
-        for (j = 0; j < init_datas[i]->func_index_count; j++)
-            EMIT_U32(init_datas[i]->func_indexes[j]);
+        for (j = 0; j < init_datas[i]->func_index_count; j++) {
+
+            if (comp_ctx->pointer_size == 4) {
+                EMIT_U32(init_datas[i]->func_indexes[j]);
+            }
+            else {
+                EMIT_U64(init_datas[i]->func_indexes[j]);
+            }
+        }
     }
 
-    if (offset - *p_offset != get_table_info_size(comp_data)) {
+    if (offset - *p_offset != get_table_info_size(comp_ctx, comp_data)) {
         aot_set_last_error("emit table info failed.");
         return false;
     }
