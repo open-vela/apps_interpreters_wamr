@@ -20,8 +20,7 @@ extern "C" {
 #endif
 
 typedef InitializerExpression AOTInitExpr;
-typedef WASMType AOTType;
-typedef WASMFuncType AOTFuncType;
+typedef WASMType AOTFuncType;
 typedef WASMExport AOTExport;
 
 #if WASM_ENABLE_DEBUG_AOT != 0
@@ -133,7 +132,7 @@ typedef struct AOTTableInitData {
     /* Function index count */
     uint32 func_index_count;
     /* Function index array */
-    uintptr_t func_indexes[1];
+    uint32 func_indexes[1];
 } AOTTableInitData;
 
 /**
@@ -278,7 +277,7 @@ typedef struct AOTNativeSymbol {
 } AOTNativeSymbol;
 
 AOTCompData *
-aot_create_comp_data(WASMModule *module, bool gc_enabled);
+aot_create_comp_data(WASMModule *module);
 
 void
 aot_destroy_comp_data(AOTCompData *comp_data);

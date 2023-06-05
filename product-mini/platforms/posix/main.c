@@ -51,10 +51,6 @@ print_help()
     printf("  --jit-codecache-size=n   Set fast jit maximum code cache size in bytes,\n");
     printf("                           default is %u KB\n", FAST_JIT_DEFAULT_CODE_CACHE_SIZE / 1024);
 #endif
-#if WASM_ENABLE_GC != 0
-    printf("  --gc-heap-size=n         Set maximum gc heap size in bytes,\n");
-    printf("                           default is %u KB\n", GC_HEAP_SIZE_DEFAULT / 1024);
-#endif
 #if WASM_ENABLE_JIT != 0
     printf("  --llvm-jit-size-level=n  Set LLVM JIT size level, default is 3\n");
     printf("  --llvm-jit-opt-level=n   Set LLVM JIT optimization level, default is 3\n");
@@ -101,6 +97,9 @@ print_help()
 #if WASM_ENABLE_DEBUG_INTERP != 0
     printf("  -g=ip:port               Set the debug sever address, default is debug disabled\n");
     printf("                             if port is 0, then a random port will be used\n");
+#endif
+#if WASM_ENABLE_STATIC_PGO != 0
+    printf("  --gen-prof-file=<path>   Generate LLVM PGO (Profile-Guided Optimization) profile file\n");
 #endif
     printf("  --version                Show version information\n");
     return 1;
@@ -417,6 +416,44 @@ moudle_destroyer(uint8 *buffer, uint32 size)
 static char global_heap_buf[WASM_GLOBAL_HEAP_SIZE] = { 0 };
 #endif
 
+#if WASM_ENABLE_STATIC_PGO != 0
+static void
+dump_pgo_prof_data(wasm_module_inst_t module_inst, const char *path)
+{
+    char *buf;
+    uint32 len;
+    FILE *file;
+
+    if (!(len = wasm_runtime_get_pgo_prof_data_size(module_inst))) {
+        printf("failed to get LLVM PGO profile data size\n");
+        return;
+    }
+
+    if (!(buf = wasm_runtime_malloc(len))) {
+        printf("allocate memory failed\n");
+        return;
+    }
+
+    if (len != wasm_runtime_dump_pgo_prof_data_to_buf(module_inst, buf, len)) {
+        printf("failed to dump LLVM PGO profile data\n");
+        wasm_runtime_free(buf);
+        return;
+    }
+
+    if (!(file = fopen(path, "wb"))) {
+        printf("failed to create file %s", path);
+        wasm_runtime_free(buf);
+        return;
+    }
+    fwrite(buf, len, 1, file);
+    fclose(file);
+
+    wasm_runtime_free(buf);
+
+    printf("LLVM raw profile file %s was generated.\n", path);
+}
+#endif
+
 int
 main(int argc, char *argv[])
 {
@@ -428,9 +465,6 @@ main(int argc, char *argv[])
     uint32 stack_size = 64 * 1024, heap_size = 16 * 1024;
 #if WASM_ENABLE_FAST_JIT != 0
     uint32 jit_code_cache_size = FAST_JIT_DEFAULT_CODE_CACHE_SIZE;
-#endif
-#if WASM_ENABLE_GC != 0
-    uint32 gc_heap_size = GC_HEAP_SIZE_DEFAULT;
 #endif
 #if WASM_ENABLE_JIT != 0
     uint32 llvm_jit_size_level = 3;
@@ -466,6 +500,9 @@ main(int argc, char *argv[])
 #if WASM_ENABLE_DEBUG_INTERP != 0
     char *ip_addr = NULL;
     int instance_port = 0;
+#endif
+#if WASM_ENABLE_STATIC_PGO != 0
+    const char *gen_prof_file = NULL;
 #endif
 
     /* Process options. */
@@ -523,13 +560,6 @@ main(int argc, char *argv[])
             if (argv[0][21] == '\0')
                 return print_help();
             jit_code_cache_size = atoi(argv[0] + 21);
-        }
-#endif
-#if WASM_ENABLE_GC != 0
-        else if (!strncmp(argv[0], "--gc-heap-size=", 15)) {
-            if (argv[0][21] == '\0')
-                return print_help();
-            gc_heap_size = atoi(argv[0] + 15);
         }
 #endif
 #if WASM_ENABLE_JIT != 0
@@ -678,6 +708,13 @@ main(int argc, char *argv[])
             ip_addr = argv[0] + 3;
         }
 #endif
+#if WASM_ENABLE_STATIC_PGO != 0
+        else if (!strncmp(argv[0], "--gen-prof-file=", 16)) {
+            if (argv[0][16] == '\0')
+                return print_help();
+            gen_prof_file = argv[0] + 16;
+        }
+#endif
         else if (!strncmp(argv[0], "--version", 9)) {
             uint32 major, minor, patch;
             wasm_runtime_get_version(&major, &minor, &patch);
@@ -712,10 +749,6 @@ main(int argc, char *argv[])
 
 #if WASM_ENABLE_FAST_JIT != 0
     init_args.fast_jit_code_cache_size = jit_code_cache_size;
-#endif
-
-#if WASM_ENABLE_GC != 0
-    init_args.gc_heap_size = gc_heap_size;
 #endif
 
 #if WASM_ENABLE_JIT != 0
@@ -842,6 +875,12 @@ main(int argc, char *argv[])
             ret = 1;
         }
     }
+#endif
+
+#if WASM_ENABLE_STATIC_PGO != 0 && WASM_ENABLE_AOT != 0
+    if (get_package_type(wasm_file_buf, wasm_file_size) == Wasm_Module_AoT
+        && gen_prof_file)
+        dump_pgo_prof_data(wasm_module_inst, gen_prof_file);
 #endif
 
 #if WASM_ENABLE_DEBUG_INTERP != 0
