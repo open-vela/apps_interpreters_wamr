@@ -1094,8 +1094,7 @@ aot_create_func_contexts(const AOTCompData *comp_data, AOTCompContext *comp_ctx)
 }
 
 static bool
-aot_set_llvm_basic_types(AOTLLVMTypes *basic_types, LLVMContextRef context,
-                         int pointer_size)
+aot_set_llvm_basic_types(AOTLLVMTypes *basic_types, LLVMContextRef context)
 {
     basic_types->int1_type = LLVMInt1TypeInContext(context);
     basic_types->int8_type = LLVMInt8TypeInContext(context);
@@ -1160,19 +1159,9 @@ aot_set_llvm_basic_types(AOTLLVMTypes *basic_types, LLVMContextRef context,
     basic_types->funcref_type = LLVMInt32TypeInContext(context);
     basic_types->externref_type = LLVMInt32TypeInContext(context);
 
-    if (pointer_size == 4) {
-        basic_types->intptr_type = basic_types->int32_type;
-        basic_types->intptr_ptr_type = basic_types->int32_ptr_type;
-    }
-    else {
-        basic_types->intptr_type = basic_types->int64_type;
-        basic_types->intptr_ptr_type = basic_types->int64_ptr_type;
-    }
-
     return (basic_types->int8_ptr_type && basic_types->int8_pptr_type
             && basic_types->int16_ptr_type && basic_types->int32_ptr_type
-            && basic_types->int64_ptr_type && basic_types->intptr_type
-            && basic_types->intptr_ptr_type && basic_types->float32_ptr_type
+            && basic_types->int64_ptr_type && basic_types->float32_ptr_type
             && basic_types->float64_ptr_type && basic_types->i8x16_vec_type
             && basic_types->i16x8_vec_type && basic_types->i32x4_vec_type
             && basic_types->i64x2_vec_type && basic_types->f32x4_vec_type
@@ -1681,11 +1670,14 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
     if (option->disable_llvm_lto)
         comp_ctx->disable_llvm_lto = true;
 
+    if (option->enable_llvm_pgo)
+        comp_ctx->enable_llvm_pgo = true;
+
+    if (option->use_prof_file)
+        comp_ctx->use_prof_file = option->use_prof_file;
+
     if (option->enable_stack_estimation)
         comp_ctx->enable_stack_estimation = true;
-
-    if (option->enable_gc)
-        comp_ctx->enable_gc = true;
 
     comp_ctx->opt_level = option->opt_level;
     comp_ctx->size_level = option->size_level;
@@ -2189,8 +2181,7 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
         goto fail;
     }
 
-    if (!aot_set_llvm_basic_types(&comp_ctx->basic_types, comp_ctx->context,
-                                  comp_ctx->pointer_size)) {
+    if (!aot_set_llvm_basic_types(&comp_ctx->basic_types, comp_ctx->context)) {
         aot_set_last_error("create LLVM basic types failed.");
         goto fail;
     }
@@ -2843,4 +2834,24 @@ aot_load_const_from_table(AOTCompContext *comp_ctx, LLVMValueRef base,
 
     (void)const_type;
     return const_value;
+}
+
+bool
+aot_set_cond_br_weights(AOTCompContext *comp_ctx, LLVMValueRef cond_br,
+                        int32 weights_true, int32 weights_false)
+{
+    LLVMMetadataRef md_nodes[3], meta_data;
+    LLVMValueRef meta_data_as_value;
+
+    md_nodes[0] = LLVMMDStringInContext2(comp_ctx->context, "branch_weights",
+                                         strlen("branch_weights"));
+    md_nodes[1] = LLVMValueAsMetadata(I32_CONST(weights_true));
+    md_nodes[2] = LLVMValueAsMetadata(I32_CONST(weights_false));
+
+    meta_data = LLVMMDNodeInContext2(comp_ctx->context, md_nodes, 3);
+    meta_data_as_value = LLVMMetadataAsValue(comp_ctx->context, meta_data);
+
+    LLVMSetMetadata(cond_br, 2, meta_data_as_value);
+
+    return true;
 }
