@@ -65,13 +65,10 @@ print_help()
     printf("  --enable-dump-call-stack  Enable stack trace feature\n");
     printf("  --enable-perf-profiling   Enable function performance profiling\n");
     printf("  --enable-memory-profiling Enable memory usage profiling\n");
-    printf("  --xip                     A shorthand of --enalbe-indirect-mode --disable-llvm-intrinsics\n");
     printf("  --enable-indirect-mode    Enalbe call function through symbol table but not direct call\n");
     printf("  --disable-llvm-intrinsics Disable the LLVM built-in intrinsics\n");
     printf("  --disable-llvm-lto        Disable the LLVM link time optimization\n");
     printf("  --enable-llvm-pgo         Enable LLVM PGO (Profile-Guided Optimization)\n");
-    printf("  --enable-llvm-passes=<passes>\n");
-    printf("                            Enable the specified LLVM passes, using comma to separate\n");
     printf("  --use-prof-file=<file>    Use profile file collected by LLVM PGO (Profile-Guided Optimization)\n");
     printf("  --enable-segue[=<flags>]  Enable using segment register GS as the base address of linear memory,\n");
     printf("                            only available on linux/linux-sgx x86-64, which may improve performance,\n");
@@ -328,10 +325,6 @@ main(int argc, char *argv[])
         else if (!strcmp(argv[0], "--enable-memory-profiling")) {
             option.enable_stack_estimation = true;
         }
-        else if (!strcmp(argv[0], "--xip")) {
-            option.is_indirect_mode = true;
-            option.disable_llvm_intrinsics = true;
-        }
         else if (!strcmp(argv[0], "--enable-indirect-mode")) {
             option.is_indirect_mode = true;
         }
@@ -343,11 +336,6 @@ main(int argc, char *argv[])
         }
         else if (!strcmp(argv[0], "--enable-llvm-pgo")) {
             option.enable_llvm_pgo = true;
-        }
-        else if (!strncmp(argv[0], "--enable-llvm-passes=", 21)) {
-            if (argv[0][21] == '\0')
-                PRINT_HELP_AND_EXIT();
-            option.llvm_passes = argv[0] + 21;
         }
         else if (!strncmp(argv[0], "--use-prof-file=", 16)) {
             if (argv[0][16] == '\0')
