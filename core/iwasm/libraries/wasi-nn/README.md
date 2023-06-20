@@ -55,10 +55,8 @@ Tests: passed!
 
 ```
 docker run \
-    -v $PWD/core/iwasm/libraries/wasi-nn/test:/assets \
-    -v $PWD/core/iwasm/libraries/wasi-nn/test/models:/models \
-    wasi-nn-cpu \
-    --dir=/ \
+    -v $PWD/core/iwasm/libraries/wasi-nn/test:/assets wasi-nn-cpu \
+    --dir=/assets \
     --env="TARGET=cpu" \
     /assets/test_tensorflow.wasm
 ```
@@ -68,10 +66,8 @@ docker run \
 ```
 docker run \
     --runtime=nvidia \
-    -v $PWD/core/iwasm/libraries/wasi-nn/test:/assets \
-    -v $PWD/core/iwasm/libraries/wasi-nn/test/models:/models \
-    wasi-nn-nvidia-gpu \
-    --dir=/ \
+    -v $PWD/core/iwasm/libraries/wasi-nn/test:/assets wasi-nn-nvidia-gpu \
+    --dir=/assets \
     --env="TARGET=gpu" \
     /assets/test_tensorflow.wasm
 ```

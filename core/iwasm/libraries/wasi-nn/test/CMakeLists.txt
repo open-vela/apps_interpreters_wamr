@@ -1,22 +1,20 @@
 # Copyright (C) 2019 Intel Corporation.  All rights reserved.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-cmake_minimum_required (VERSION 3.14)
-
-include(CheckPIESupported)
+cmake_minimum_required (VERSION 2.9)
 
 project (iwasm)
 
 set (CMAKE_VERBOSE_MAKEFILE OFF)
-
-set (WAMR_BUILD_PLATFORM "linux")
-
 # Reset default linker flags
+set (CMAKE_C_STANDARD 99)
+set (CMAKE_CXX_STANDARD 17)
 set (CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "")
 set (CMAKE_SHARED_LIBRARY_LINK_CXX_FLAGS "")
 
-set (CMAKE_C_STANDARD 99)
-set (CMAKE_CXX_STANDARD 17)
+if (NOT DEFINED WAMR_BUILD_PLATFORM)
+  set (WAMR_BUILD_PLATFORM "linux")
+endif ()
 
 # Set WAMR_BUILD_TARGET, currently values supported:
 # "X86_64", "AMD_64", "X86_32", "AARCH64[sub]", "ARM[sub]", "THUMB[sub]",
@@ -86,12 +84,6 @@ if (NOT DEFINED WAMR_BUILD_LIB_PTHREAD)
   set (WAMR_BUILD_LIB_PTHREAD 0)
 endif ()
 
-if (NOT DEFINED WAMR_BUILD_LIB_WASI_THREADS)
-  # Disable wasi threads library by default
-  set (WAMR_BUILD_LIB_WASI_THREADS 0)
-endif()
-
-
 if (NOT DEFINED WAMR_BUILD_MINI_LOADER)
   # Disable wasm mini loader by default
   set (WAMR_BUILD_MINI_LOADER 0)
@@ -118,12 +110,12 @@ if (WAMR_BUILD_DEBUG_INTERP EQUAL 1)
   set (WAMR_BUILD_SIMD 0)
 endif ()
 
-set (WAMR_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../..)
+set (WAMR_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../../..)
 
 include (${WAMR_ROOT_DIR}/build-scripts/runtime_lib.cmake)
 add_library(vmlib ${WAMR_RUNTIME_LIB_SOURCE})
 
-set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--gc-sections")
+set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--gc-sections -pie -fPIE")
 
 set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Wformat -Wformat-security -Wshadow")
 # set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wconversion -Wsign-conversion")
@@ -135,6 +127,24 @@ if (WAMR_BUILD_TARGET MATCHES "X86_.*" OR WAMR_BUILD_TARGET STREQUAL "AMD_64")
     set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mindirect-branch-register")
     set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mindirect-branch-register")
     # UNDEFINED BEHAVIOR, refer to https://en.cppreference.com/w/cpp/language/ub
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT WAMR_BUILD_JIT EQUAL 1)
+      set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=undefined \
+                                          -fno-sanitize=bounds,bounds-strict,alignment \
+                                          -fno-sanitize-recover")
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=undefined \
+                                              -fno-sanitize=bounds,bounds-strict,alignment \
+                                              -fno-sanitize-recover")
+    endif()
+  else ()
+    # UNDEFINED BEHAVIOR, refer to https://en.cppreference.com/w/cpp/language/ub
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT WAMR_BUILD_JIT EQUAL 1)
+      set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=undefined \
+                                          -fno-sanitize=bounds,alignment \
+                                          -fno-sanitize-recover")
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=undefined \
+                                              -fno-sanitize=bounds,alignment \
+                                              -fno-sanitize-recover")
+    endif()
   endif ()
 endif ()
 
@@ -148,14 +158,11 @@ endif ()
 
 include (${SHARED_DIR}/utils/uncommon/shared_uncommon.cmake)
 
-add_executable (iwasm main.c ${UNCOMMON_SHARED_SOURCE})
-
-check_pie_supported()
-set_target_properties (iwasm PROPERTIES POSITION_INDEPENDENT_CODE ON)
+add_executable (iwasm ${WAMR_ROOT_DIR}/product-mini/platforms/${WAMR_BUILD_PLATFORM}/main.c ${UNCOMMON_SHARED_SOURCE})
 
 install (TARGETS iwasm DESTINATION bin)
 
-target_link_libraries (iwasm vmlib ${LLVM_AVAILABLE_LIBS} ${UV_A_LIBS} -lm -ldl -lpthread)
+target_link_libraries (iwasm vmlib ${LLVM_AVAILABLE_LIBS} ${UV_A_LIBS} ${TENSORFLOW_LIB} -lm -ldl -lpthread)
 
 add_library (libiwasm SHARED ${WAMR_RUNTIME_LIB_SOURCE})
 
