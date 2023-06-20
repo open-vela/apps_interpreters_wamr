@@ -384,7 +384,7 @@
 #define APP_THREAD_STACK_SIZE_DEFAULT (64 * 1024)
 #define APP_THREAD_STACK_SIZE_MIN (48 * 1024)
 #else
-#define APP_THREAD_STACK_SIZE_DEFAULT (64 * 1024)
+#define APP_THREAD_STACK_SIZE_DEFAULT (32 * 1024)
 #define APP_THREAD_STACK_SIZE_MIN (24 * 1024)
 #endif
 #endif /* end of !(defined(APP_THREAD_STACK_SIZE_DEFAULT) \
@@ -454,11 +454,6 @@
    to GS segment register before calling wasm/aot function. */
 #ifndef WASM_DISABLE_WRITE_GS_BASE
 #define WASM_DISABLE_WRITE_GS_BASE 0
-#endif
-
-/* Configurable bounds checks */
-#ifndef WASM_CONFIGURABLE_BOUNDS_CHECKS
-#define WASM_CONFIGURABLE_BOUNDS_CHECKS 0
 #endif
 
 #endif /* end of _CONFIG_H_ */

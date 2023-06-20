@@ -9,8 +9,6 @@
 #define R_RISCV_64 2
 #define R_RISCV_CALL 18
 #define R_RISCV_CALL_PLT 19
-#define R_RISCV_PCREL_HI20 23
-#define R_RISCV_PCREL_LO12_I 24
 #define R_RISCV_HI20 26
 #define R_RISCV_LO12_I 27
 #define R_RISCV_LO12_S 28
@@ -269,10 +267,9 @@ typedef struct RelocTypeStrMap {
     }
 
 static RelocTypeStrMap reloc_type_str_maps[] = {
-    RELOC_TYPE_MAP(R_RISCV_32),           RELOC_TYPE_MAP(R_RISCV_CALL),
-    RELOC_TYPE_MAP(R_RISCV_CALL_PLT),     RELOC_TYPE_MAP(R_RISCV_PCREL_HI20),
-    RELOC_TYPE_MAP(R_RISCV_PCREL_LO12_I), RELOC_TYPE_MAP(R_RISCV_HI20),
-    RELOC_TYPE_MAP(R_RISCV_LO12_I),       RELOC_TYPE_MAP(R_RISCV_LO12_S),
+    RELOC_TYPE_MAP(R_RISCV_32),       RELOC_TYPE_MAP(R_RISCV_CALL),
+    RELOC_TYPE_MAP(R_RISCV_CALL_PLT), RELOC_TYPE_MAP(R_RISCV_HI20),
+    RELOC_TYPE_MAP(R_RISCV_LO12_I),   RELOC_TYPE_MAP(R_RISCV_LO12_S),
 };
 
 static const char *
@@ -372,29 +369,13 @@ apply_relocation(AOTModule *module, uint8 *target_section_addr,
             break;
         }
 
-        case R_RISCV_HI20:       /* S + A */
-        case R_RISCV_PCREL_HI20: /* S + A - P */
+        case R_RISCV_HI20:
         {
-            if (reloc_type == R_RISCV_PCREL_HI20) {
-                val = (int32)((intptr_t)symbol_addr + (intptr_t)reloc_addend
-                              - (intptr_t)addr);
-            }
-            else {
-                val = (int32)((intptr_t)symbol_addr + (intptr_t)reloc_addend);
-            }
+            val = (int32)((intptr_t)symbol_addr + (intptr_t)reloc_addend);
 
             CHECK_RELOC_OFFSET(sizeof(uint32));
-            if (reloc_type == R_RISCV_PCREL_HI20) {
-                if (val
-                    != ((intptr_t)symbol_addr + (intptr_t)reloc_addend
-                        - (intptr_t)addr)) {
-                    goto fail_addr_out_of_range;
-                }
-            }
-            else {
-                if (val != ((intptr_t)symbol_addr + (intptr_t)reloc_addend)) {
-                    goto fail_addr_out_of_range;
-                }
+            if (val != ((intptr_t)symbol_addr + (intptr_t)reloc_addend)) {
+                goto fail_addr_out_of_range;
             }
 
             addr = target_section_addr + reloc_offset;
@@ -405,27 +386,13 @@ apply_relocation(AOTModule *module, uint8 *target_section_addr,
             break;
         }
 
-        case R_RISCV_LO12_I:       /* S + A */
-        case R_RISCV_PCREL_LO12_I: /* S - P */
+        case R_RISCV_LO12_I:
         {
-            if (reloc_type == R_RISCV_PCREL_LO12_I) {
-                /* A = 0 */
-                val = (int32)((intptr_t)symbol_addr - (intptr_t)addr);
-            }
-            else {
-                val = (int32)((intptr_t)symbol_addr + (intptr_t)reloc_addend);
-            }
+            val = (int32)((intptr_t)symbol_addr + (intptr_t)reloc_addend);
 
             CHECK_RELOC_OFFSET(sizeof(uint32));
-            if (reloc_type == R_RISCV_PCREL_LO12_I) {
-                if (val != (intptr_t)symbol_addr - (intptr_t)addr) {
-                    goto fail_addr_out_of_range;
-                }
-            }
-            else {
-                if (val != (intptr_t)symbol_addr + (intptr_t)reloc_addend) {
-                    goto fail_addr_out_of_range;
-                }
+            if (val != (intptr_t)symbol_addr + (intptr_t)reloc_addend) {
+                goto fail_addr_out_of_range;
             }
 
             addr = target_section_addr + reloc_offset;
