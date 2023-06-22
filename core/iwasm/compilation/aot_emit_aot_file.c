@@ -140,6 +140,10 @@ typedef struct AOTObjectData {
     AOTSymbolList symbol_list;
     AOTRelocationGroup *relocation_groups;
     uint32 relocation_group_count;
+
+    const char *stack_sizes_section_name;
+    uint32 stack_sizes_offset;
+    uint32 *stack_sizes;
 } AOTObjectData;
 
 #if 0
@@ -187,8 +191,10 @@ get_file_header_size()
 static uint32
 get_string_size(AOTCompContext *comp_ctx, const char *s)
 {
-    /* string size (2 bytes) + string content + '\0' */
-    return (uint32)sizeof(uint16) + (uint32)strlen(s) + 1;
+    /* string size (2 bytes) + string content */
+    return (uint32)sizeof(uint16) + (uint32)strlen(s) +
+           /* emit string with '\0' only in XIP mode */
+           (comp_ctx->is_indirect_mode ? 1 : 0);
 }
 
 static uint32
@@ -257,8 +263,7 @@ get_mem_info_size(AOTCompData *comp_data)
 }
 
 static uint32
-get_table_init_data_size(AOTCompContext *comp_ctx,
-                         AOTTableInitData *table_init_data)
+get_table_init_data_size(AOTTableInitData *table_init_data)
 {
     /*
      * mode (4 bytes), elem_type (4 bytes), do not need is_dropped field
@@ -269,13 +274,11 @@ get_table_init_data_size(AOTCompContext *comp_ctx,
      */
     return (uint32)(sizeof(uint32) * 2 + sizeof(uint32) + sizeof(uint32)
                     + sizeof(uint64) + sizeof(uint32)
-                    + comp_ctx->pointer_size
-                          * table_init_data->func_index_count);
+                    + sizeof(uint32) * table_init_data->func_index_count);
 }
 
 static uint32
-get_table_init_data_list_size(AOTCompContext *comp_ctx,
-                              AOTTableInitData **table_init_data_list,
+get_table_init_data_list_size(AOTTableInitData **table_init_data_list,
                               uint32 table_init_data_count)
 {
     /*
@@ -288,7 +291,7 @@ get_table_init_data_list_size(AOTCompContext *comp_ctx,
      * |                     | U32 offset.init_expr_type
      * |                     | U64 offset.u.i64
      * |                     | U32 func_index_count
-     * |                     | U32/U64 [func_index_count]
+     * |                     | U32[func_index_count]
      * ------------------------------
      */
     AOTTableInitData **table_init_data = table_init_data_list;
@@ -298,7 +301,7 @@ get_table_init_data_list_size(AOTCompContext *comp_ctx,
 
     for (i = 0; i < table_init_data_count; i++, table_init_data++) {
         size = align_uint(size, 4);
-        size += get_table_init_data_size(comp_ctx, *table_init_data);
+        size += get_table_init_data_size(*table_init_data);
     }
     return size;
 }
@@ -340,7 +343,7 @@ get_table_size(AOTCompData *comp_data)
 }
 
 static uint32
-get_table_info_size(AOTCompContext *comp_ctx, AOTCompData *comp_data)
+get_table_info_size(AOTCompData *comp_data)
 {
     /*
      * ------------------------------
@@ -364,8 +367,7 @@ get_table_info_size(AOTCompContext *comp_ctx, AOTCompData *comp_data)
      * ------------------------------
      */
     return get_import_table_size(comp_data) + get_table_size(comp_data)
-           + get_table_init_data_list_size(comp_ctx,
-                                           comp_data->table_init_data_list,
+           + get_table_init_data_list_size(comp_data->table_init_data_list,
                                            comp_data->table_init_data_count);
 }
 
@@ -378,9 +380,9 @@ get_func_type_size(AOTFuncType *func_type)
 }
 
 static uint32
-get_types_size(AOTType **func_types, uint32 func_type_count)
+get_func_types_size(AOTFuncType **func_types, uint32 func_type_count)
 {
-    AOTFuncType **func_type = (AOTFuncType **)func_types;
+    AOTFuncType **func_type = func_types;
     uint32 size = 0, i;
 
     for (i = 0; i < func_type_count; i++, func_type++) {
@@ -395,7 +397,8 @@ get_func_type_info_size(AOTCompData *comp_data)
 {
     /* func type count + func type list */
     return (uint32)sizeof(uint32)
-           + get_types_size(comp_data->types, comp_data->type_count);
+           + get_func_types_size(comp_data->func_types,
+                                 comp_data->func_type_count);
 }
 
 static uint32
@@ -539,7 +542,7 @@ get_init_data_section_size(AOTCompContext *comp_ctx, AOTCompData *comp_data,
     size += get_mem_info_size(comp_data);
 
     size = align_uint(size, 4);
-    size += get_table_info_size(comp_ctx, comp_data);
+    size += get_table_info_size(comp_data);
 
     size = align_uint(size, 4);
     size += get_func_type_info_size(comp_data);
@@ -1079,16 +1082,17 @@ static union {
         offset += len;                \
     } while (0)
 
-/* Emit string with '\0'
- */
 #define EMIT_STR(s)                                   \
     do {                                              \
-        uint32 str_len = (uint32)strlen(s) + 1;       \
+        uint32 str_len = (uint32)strlen(s);           \
         if (str_len > INT16_MAX) {                    \
             aot_set_last_error("emit string failed: " \
                                "string too long");    \
             return false;                             \
         }                                             \
+        if (comp_ctx->is_indirect_mode)               \
+            /* emit '\0' only in XIP mode */          \
+            str_len++;                                \
         EMIT_U16(str_len);                            \
         EMIT_BUF(s, str_len);                         \
     } while (0)
@@ -1480,18 +1484,11 @@ aot_emit_table_info(uint8 *buf, uint8 *buf_end, uint32 *p_offset,
         EMIT_U32(init_datas[i]->offset.init_expr_type);
         EMIT_U64(init_datas[i]->offset.u.i64);
         EMIT_U32(init_datas[i]->func_index_count);
-        for (j = 0; j < init_datas[i]->func_index_count; j++) {
-
-            if (comp_ctx->pointer_size == 4) {
-                EMIT_U32(init_datas[i]->func_indexes[j]);
-            }
-            else {
-                EMIT_U64(init_datas[i]->func_indexes[j]);
-            }
-        }
+        for (j = 0; j < init_datas[i]->func_index_count; j++)
+            EMIT_U32(init_datas[i]->func_indexes[j]);
     }
 
-    if (offset - *p_offset != get_table_info_size(comp_ctx, comp_data)) {
+    if (offset - *p_offset != get_table_info_size(comp_data)) {
         aot_set_last_error("emit table info failed.");
         return false;
     }
@@ -1502,17 +1499,17 @@ aot_emit_table_info(uint8 *buf, uint8 *buf_end, uint32 *p_offset,
 }
 
 static bool
-aot_emit_type_info(uint8 *buf, uint8 *buf_end, uint32 *p_offset,
-                   AOTCompData *comp_data, AOTObjectData *obj_data)
+aot_emit_func_type_info(uint8 *buf, uint8 *buf_end, uint32 *p_offset,
+                        AOTCompData *comp_data, AOTObjectData *obj_data)
 {
     uint32 offset = *p_offset, i;
-    AOTFuncType **func_types = (AOTFuncType **)comp_data->types;
+    AOTFuncType **func_types = comp_data->func_types;
 
     *p_offset = offset = align_uint(offset, 4);
 
-    EMIT_U32(comp_data->type_count);
+    EMIT_U32(comp_data->func_type_count);
 
-    for (i = 0; i < comp_data->type_count; i++) {
+    for (i = 0; i < comp_data->func_type_count; i++) {
         offset = align_uint(offset, 4);
         EMIT_U32(func_types[i]->param_count);
         EMIT_U32(func_types[i]->result_count);
@@ -1641,7 +1638,31 @@ aot_emit_object_data_section_info(uint8 *buf, uint8 *buf_end, uint32 *p_offset,
         EMIT_STR(data_section->name);
         offset = align_uint(offset, 4);
         EMIT_U32(data_section->size);
-        EMIT_BUF(data_section->data, data_section->size);
+        if (obj_data->stack_sizes_section_name != NULL
+            && !strcmp(obj_data->stack_sizes_section_name,
+                       data_section->name)) {
+            uint32 ss_offset = obj_data->stack_sizes_offset;
+            uint32 ss_size =
+                obj_data->func_count * sizeof(*obj_data->stack_sizes);
+            LOG_VERBOSE("Replacing stack_sizes in %s section, offset %" PRIu32
+                        ", size %" PRIu32,
+                        obj_data->stack_sizes_section_name, ss_offset, ss_size);
+            bh_assert(ss_offset + ss_size <= data_section->size);
+            /* 0 .. ss_offset */
+            if (ss_offset > 0) {
+                EMIT_BUF(data_section->data, ss_offset);
+            }
+            /* ss_offset .. ss_offset+ss_size */
+            EMIT_BUF(obj_data->stack_sizes, ss_size);
+            /* ss_offset+ss_size .. data_section->size */
+            if (data_section->size > ss_offset + ss_size) {
+                EMIT_BUF(data_section->data + ss_offset + ss_size,
+                         data_section->size - (ss_offset + ss_size));
+            }
+        }
+        else {
+            EMIT_BUF(data_section->data, data_section->size);
+        }
     }
 
     if (offset - *p_offset
@@ -1672,7 +1693,7 @@ aot_emit_init_data_section(uint8 *buf, uint8 *buf_end, uint32 *p_offset,
     if (!aot_emit_mem_info(buf, buf_end, &offset, comp_ctx, comp_data, obj_data)
         || !aot_emit_table_info(buf, buf_end, &offset, comp_ctx, comp_data,
                                 obj_data)
-        || !aot_emit_type_info(buf, buf_end, &offset, comp_data, obj_data)
+        || !aot_emit_func_type_info(buf, buf_end, &offset, comp_data, obj_data)
         || !aot_emit_import_global_info(buf, buf_end, &offset, comp_ctx,
                                         comp_data, obj_data)
         || !aot_emit_global_info(buf, buf_end, &offset, comp_data, obj_data)
@@ -2426,6 +2447,293 @@ aot_resolve_object_data_sections(AOTObjectData *obj_data)
 }
 
 static bool
+read_stack_usage_file(const AOTCompContext *comp_ctx, const char *filename,
+                      uint32 *sizes, uint32 count)
+{
+    FILE *fp = NULL;
+    if (filename == NULL) {
+        aot_set_last_error("no stack usage file is specified.");
+        return false;
+    }
+    fp = fopen(filename, "r");
+    if (fp == NULL) {
+        LOG_ERROR("failed to open stack usage file: %s", filename);
+        goto fail;
+    }
+    /*
+     * the file consists of lines like:
+     *
+     * WASM Module:aot_func#9  72  static
+     */
+    const char *aot_func_prefix = AOT_FUNC_PREFIX;
+    const char *aot_func_internal_prefix = AOT_FUNC_INTERNAL_PREFIX;
+    uint32 precheck_found = 0;
+    uint32 precheck_stack_size_max = 0;
+    uint32 precheck_stack_size_min = UINT32_MAX;
+    uint32 found = 0;
+    while (true) {
+        const char *prefix;
+        char line[100];
+        char *cp = fgets(line, sizeof(line), fp);
+        char *fn;
+        char *colon;
+        uintmax_t func_idx;
+        uintmax_t sz;
+        int ret;
+
+        if (cp == NULL) {
+            break;
+        }
+        /*
+         * Note: strrchr (not strchr) because a module name can contain
+         * colons.
+         */
+        colon = strrchr(cp, ':');
+        if (colon == NULL) {
+            goto fail;
+        }
+        fn = strstr(colon, aot_func_prefix);
+        if (fn != NULL) {
+            prefix = aot_func_prefix;
+        }
+        else {
+            fn = strstr(colon, aot_func_internal_prefix);
+            if (fn == NULL) {
+                LOG_ERROR("failed to parse stack usage line: %s", cp);
+                goto fail;
+            }
+            prefix = aot_func_internal_prefix;
+        }
+        ret = sscanf(fn + strlen(prefix), "%ju %ju static", &func_idx, &sz);
+        if (ret != 2) {
+            goto fail;
+        }
+        if (sz > UINT32_MAX) {
+            goto fail;
+        }
+        if (func_idx > UINT32_MAX) {
+            goto fail;
+        }
+        if (func_idx >= count) {
+            goto fail;
+        }
+        if (prefix == aot_func_prefix) {
+            if (sz < precheck_stack_size_min) {
+                precheck_stack_size_min = sz;
+            }
+            if (sz > precheck_stack_size_max) {
+                precheck_stack_size_max = sz;
+            }
+            precheck_found++;
+            continue;
+        }
+        sizes[func_idx] = sz;
+        found++;
+    }
+    fclose(fp);
+    if (precheck_found != count) {
+        LOG_ERROR("%" PRIu32 " precheck entries found while %" PRIu32
+                  " entries are expected",
+                  precheck_found, count);
+        return false;
+    }
+    if (found != count) {
+        /*
+         * LLVM seems to eliminate calls to an empty function
+         * (and eliminate the function) even if it's marked noinline.
+         */
+        LOG_VERBOSE("%" PRIu32 " entries found while %" PRIu32
+                    " entries are expected. Maybe LLVM optimization eliminated "
+                    "some functions.",
+                    found, count);
+    }
+    if (precheck_stack_size_min != precheck_stack_size_max) {
+        /*
+         * Note: this is too strict.
+         *
+         * actually, the stack consumption of the precheck functions
+         * can depend on the type of them.
+         * that is, depending on various factors including
+         * calling conventions and compilers, a function with many
+         * parameters can consume more stack, even if it merely does
+         * a tail-call to another function.
+         */
+        bool musttail = aot_target_precheck_can_use_musttail(comp_ctx);
+        if (musttail) {
+            LOG_WARNING(
+                "precheck functions use variable amount of stack. (%" PRIu32
+                " - %" PRIu32 ")",
+                precheck_stack_size_min, precheck_stack_size_max);
+        }
+        else {
+            LOG_VERBOSE("precheck functions use %" PRIu32 " - %" PRIu32
+                        " bytes of stack.",
+                        precheck_stack_size_min, precheck_stack_size_max);
+        }
+    }
+    else {
+        LOG_VERBOSE("precheck functions use %" PRIu32 " bytes of stack.",
+                    precheck_stack_size_max);
+    }
+    if (precheck_stack_size_max >= 1024) {
+        LOG_WARNING("precheck functions themselves consume relatively large "
+                    "amount of stack (%" PRIu32
+                    "). Please ensure the runtime has large enough "
+                    "WASM_STACK_GUARD_SIZE.",
+                    precheck_stack_size_max);
+    }
+    return true;
+fail:
+    if (fp != NULL)
+        fclose(fp);
+    aot_set_last_error("failed to read stack usage file.");
+    return false;
+}
+
+static bool
+aot_resolve_stack_sizes(AOTCompContext *comp_ctx, AOTObjectData *obj_data)
+{
+    LLVMSectionIteratorRef sec_itr = NULL;
+    LLVMSymbolIteratorRef sym_itr;
+    const char *name;
+
+    if (!(sym_itr = LLVMObjectFileCopySymbolIterator(obj_data->binary))) {
+        aot_set_last_error("llvm get symbol iterator failed.");
+        return false;
+    }
+
+    while (!LLVMObjectFileIsSymbolIteratorAtEnd(obj_data->binary, sym_itr)) {
+        if ((name = LLVMGetSymbolName(sym_itr))
+            && !strcmp(name, aot_stack_sizes_name)) {
+            uint64 sz = LLVMGetSymbolSize(sym_itr);
+            if (sz != sizeof(uint32) * obj_data->func_count) {
+                aot_set_last_error("stack_sizes had unexpected size.");
+                goto fail;
+            }
+            uint64 addr = LLVMGetSymbolAddress(sym_itr);
+            if (!(sec_itr =
+                      LLVMObjectFileCopySectionIterator(obj_data->binary))) {
+                aot_set_last_error("llvm get section iterator failed.");
+                goto fail;
+            }
+            LLVMMoveToContainingSection(sec_itr, sym_itr);
+            const char *sec_name = LLVMGetSectionName(sec_itr);
+            LOG_VERBOSE("stack_sizes found in section %s offset %" PRIu64 ".",
+                        sec_name, addr);
+            /*
+             * Note: We can't always modify stack_sizes in-place.
+             * Eg. When WAMRC_LLC_COMPILER is used, LLVM sometimes uses
+             * read-only mmap of the temporary file to back
+             * LLVMGetSectionContents.
+             */
+            const uint32 *ro_stack_sizes =
+                (const uint32 *)(LLVMGetSectionContents(sec_itr) + addr);
+            uint32 i;
+            for (i = 0; i < obj_data->func_count; i++) {
+                /* Note: -1 == AOT_NEG_ONE from aot_create_stack_sizes */
+                if (ro_stack_sizes[i] != (uint32)-1) {
+                    aot_set_last_error("unexpected data in stack_sizes.");
+                    goto fail;
+                }
+            }
+            if (addr > UINT32_MAX) {
+                aot_set_last_error("too large stack_sizes offset.");
+                goto fail;
+            }
+            /*
+             * Record section/offset and construct a copy of stack_sizes.
+             * aot_emit_object_data_section_info will emit this copy.
+             */
+            obj_data->stack_sizes_section_name = sec_name;
+            obj_data->stack_sizes_offset = addr;
+            obj_data->stack_sizes = wasm_runtime_malloc(
+                obj_data->func_count * sizeof(*obj_data->stack_sizes));
+            if (obj_data->stack_sizes == NULL) {
+                aot_set_last_error("failed to allocate memory.");
+                goto fail;
+            }
+            uint32 *stack_sizes = obj_data->stack_sizes;
+            for (i = 0; i < obj_data->func_count; i++) {
+                stack_sizes[i] = (uint32)-1;
+            }
+            if (!read_stack_usage_file(comp_ctx, comp_ctx->stack_usage_file,
+                                       stack_sizes, obj_data->func_count)) {
+                goto fail;
+            }
+            for (i = 0; i < obj_data->func_count; i++) {
+                const AOTFuncContext *func_ctx = comp_ctx->func_ctxes[i];
+                bool musttail = aot_target_precheck_can_use_musttail(comp_ctx);
+                unsigned int stack_consumption_to_call_wrapped_func =
+                    musttail ? 0
+                             : aot_estimate_stack_usage_for_function_call(
+                                 comp_ctx, func_ctx->aot_func->func_type);
+
+                /*
+                 * LLVM seems to eliminate calls to an empty function
+                 * (and eliminate the function) even if it's marked noinline.
+                 *
+                 * Note: -1 == AOT_NEG_ONE from aot_create_stack_sizes
+                 */
+                if (stack_sizes[i] == (uint32)-1) {
+                    if (func_ctx->stack_consumption_for_func_call != 0) {
+                        /*
+                         * This happens if a function calling another
+                         * function has been optimized out.
+                         *
+                         * for example,
+                         *
+                         *   (func $func
+                         *     (local i32)
+                         *     local.get 0
+                         *     if
+                         *       call $another
+                         *     end
+                         *   )
+                         */
+                        LOG_VERBOSE("AOT func#%" PRIu32
+                                    " had call(s) but eliminated?",
+                                    i);
+                    }
+                    else {
+                        LOG_VERBOSE("AOT func#%" PRIu32 " eliminated?", i);
+                    }
+                    stack_sizes[i] = 0;
+                }
+                else {
+                    LOG_VERBOSE("AOT func#%" PRIu32 " stack_size %u + %" PRIu32
+                                " + %u",
+                                i, stack_consumption_to_call_wrapped_func,
+                                stack_sizes[i],
+                                func_ctx->stack_consumption_for_func_call);
+                    if (UINT32_MAX - stack_sizes[i]
+                        < func_ctx->stack_consumption_for_func_call) {
+                        aot_set_last_error("stack size overflow.");
+                        goto fail;
+                    }
+                    stack_sizes[i] += func_ctx->stack_consumption_for_func_call;
+                    if (UINT32_MAX - stack_sizes[i]
+                        < stack_consumption_to_call_wrapped_func) {
+                        aot_set_last_error("stack size overflow.");
+                        goto fail;
+                    }
+                    stack_sizes[i] += stack_consumption_to_call_wrapped_func;
+                }
+            }
+            LLVMDisposeSectionIterator(sec_itr);
+            LLVMDisposeSymbolIterator(sym_itr);
+            return true;
+        }
+        LLVMMoveToNextSymbol(sym_itr);
+    }
+    aot_set_last_error("stack_sizes not found.");
+fail:
+    if (sec_itr)
+        LLVMDisposeSectionIterator(sec_itr);
+    LLVMDisposeSymbolIterator(sym_itr);
+    return false;
+}
+
+static bool
 aot_resolve_functions(AOTCompContext *comp_ctx, AOTObjectData *obj_data)
 {
     AOTObjectFunc *func;
@@ -2436,6 +2744,10 @@ aot_resolve_functions(AOTCompContext *comp_ctx, AOTObjectData *obj_data)
     /* allocate memory for aot function */
     obj_data->func_count = comp_ctx->comp_data->func_count;
     if (obj_data->func_count) {
+        if ((comp_ctx->enable_stack_bound_check
+             || comp_ctx->enable_stack_estimation)
+            && !aot_resolve_stack_sizes(comp_ctx, obj_data))
+            return false;
         total_size = (uint32)sizeof(AOTObjectFunc) * obj_data->func_count;
         if (!(obj_data->funcs = wasm_runtime_malloc(total_size))) {
             aot_set_last_error("allocate memory for functions failed.");
@@ -2929,6 +3241,8 @@ aot_obj_data_destroy(AOTObjectData *obj_data)
                                   obj_data->relocation_group_count);
     if (obj_data->symbol_list.len)
         destroy_relocation_symbol_list(&obj_data->symbol_list);
+    if (obj_data->stack_sizes)
+        wasm_runtime_free(obj_data->stack_sizes);
     wasm_runtime_free(obj_data);
 }
 

@@ -10,9 +10,6 @@
 #include "../common/wasm_runtime_common.h"
 #include "../interpreter/wasm_runtime.h"
 #include "../compilation/aot.h"
-#if WASM_ENABLE_GC != 0
-#include "gc_export.h"
-#endif
 
 #if WASM_ENABLE_WASI_NN != 0
 #include "../libraries/wasi-nn/src/wasi_nn_private.h"
@@ -158,9 +155,9 @@ typedef struct AOTModule {
     uint32 table_init_data_count;
     AOTTableInitData **table_init_data_list;
 
-    /* type info */
-    uint32 type_count;
-    AOTType **types;
+    /* function type info */
+    uint32 func_type_count;
+    AOTFuncType **func_types;
 
     /* import global variable info */
     uint32 import_global_count;
@@ -601,11 +598,11 @@ aot_table_copy(AOTModuleInstance *module_inst, uint32 src_tbl_idx,
 
 void
 aot_table_fill(AOTModuleInstance *module_inst, uint32 tbl_idx, uint32 length,
-               table_elem_type_t val, uint32 data_offset);
+               uint32 val, uint32 data_offset);
 
 uint32
 aot_table_grow(AOTModuleInstance *module_inst, uint32 tbl_idx,
-               uint32 inc_entries, table_elem_type_t init_val);
+               uint32 inc_entries, uint32 init_val);
 #endif
 
 bool
