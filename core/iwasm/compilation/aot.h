@@ -19,9 +19,17 @@ extern "C" {
 #define AOT_FUNC_PREFIX "aot_func#"
 #endif
 
+#ifndef AOT_FUNC_INTERNAL_PREFIX
+#define AOT_FUNC_INTERNAL_PREFIX "aot_func_internal#"
+#endif
+
+#ifndef AOT_STACK_SIZES_NAME
+#define AOT_STACK_SIZES_NAME "aot_stack_sizes"
+#endif
+extern const char *aot_stack_sizes_name;
+
 typedef InitializerExpression AOTInitExpr;
-typedef WASMType AOTType;
-typedef WASMFuncType AOTFuncType;
+typedef WASMType AOTFuncType;
 typedef WASMExport AOTExport;
 
 #if WASM_ENABLE_DEBUG_AOT != 0
@@ -133,7 +141,7 @@ typedef struct AOTTableInitData {
     /* Function index count */
     uint32 func_index_count;
     /* Function index array */
-    uintptr_t func_indexes[1];
+    uint32 func_indexes[1];
 } AOTTableInitData;
 
 /**
@@ -233,8 +241,8 @@ typedef struct AOTCompData {
     AOTGlobal *globals;
 
     /* Function types */
-    uint32 type_count;
-    AOTType **types;
+    uint32 func_type_count;
+    AOTFuncType **func_types;
 
     /* Import functions */
     uint32 import_func_count;
@@ -278,7 +286,7 @@ typedef struct AOTNativeSymbol {
 } AOTNativeSymbol;
 
 AOTCompData *
-aot_create_comp_data(WASMModule *module, bool gc_enabled);
+aot_create_comp_data(WASMModule *module);
 
 void
 aot_destroy_comp_data(AOTCompData *comp_data);
