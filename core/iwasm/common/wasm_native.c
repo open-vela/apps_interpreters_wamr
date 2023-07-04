@@ -81,13 +81,7 @@ compare_type_with_signautre(uint8 type, const char signature)
     }
 
 #if WASM_ENABLE_REF_TYPES != 0
-    if ('r' == signature
-#if WASM_ENABLE_GC != 0
-        && (type >= REF_TYPE_NULLREF && type <= REF_TYPE_FUNCREF)
-#else
-        && type == VALUE_TYPE_EXTERNREF
-#endif
-    )
+    if ('r' == signature && type == VALUE_TYPE_EXTERNREF)
         return true;
 #endif
 
@@ -96,7 +90,7 @@ compare_type_with_signautre(uint8 type, const char signature)
 }
 
 static bool
-check_symbol_signature(const WASMFuncType *type, const char *signature)
+check_symbol_signature(const WASMType *type, const char *signature)
 {
     const char *p = signature, *p_end;
     char sig;
@@ -262,9 +256,8 @@ lookup_symbol(NativeSymbol *native_symbols, uint32 n_native_symbols,
  */
 void *
 wasm_native_resolve_symbol(const char *module_name, const char *field_name,
-                           const WASMFuncType *func_type,
-                           const char **p_signature, void **p_attachment,
-                           bool *p_call_conv_raw)
+                           const WASMType *func_type, const char **p_signature,
+                           void **p_attachment, bool *p_call_conv_raw)
 {
     NativeSymbolsNode *node, *node_next;
     const char *signature = NULL;

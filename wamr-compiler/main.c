@@ -60,18 +60,18 @@ print_help()
     printf("  --disable-simd            Disable the post-MVP 128-bit SIMD feature:\n");
     printf("                              currently 128-bit SIMD is supported for x86-64 and aarch64 targets,\n");
     printf("                              and by default it is enabled in them and disabled in other targets\n");
-    printf("  --disable-ref-types       Disable the MVP reference types feature, it will be disabled forcibly if\n");
-    printf("                              GC is enabled\n");
+    printf("  --disable-ref-types       Disable the MVP reference types feature\n");
     printf("  --disable-aux-stack-check Disable auxiliary stack overflow/underflow check\n");
     printf("  --enable-dump-call-stack  Enable stack trace feature\n");
     printf("  --enable-perf-profiling   Enable function performance profiling\n");
     printf("  --enable-memory-profiling Enable memory usage profiling\n");
     printf("  --xip                     A shorthand of --enalbe-indirect-mode --disable-llvm-intrinsics\n");
     printf("  --enable-indirect-mode    Enalbe call function through symbol table but not direct call\n");
-    printf("  --enable-gc               Enalbe GC (Garbage Collection) feature\n");
     printf("  --disable-llvm-intrinsics Disable the LLVM built-in intrinsics\n");
     printf("  --disable-llvm-lto        Disable the LLVM link time optimization\n");
     printf("  --enable-llvm-pgo         Enable LLVM PGO (Profile-Guided Optimization)\n");
+    printf("  --enable-llvm-passes=<passes>\n");
+    printf("                            Enable the specified LLVM passes, using comma to separate\n");
     printf("  --use-prof-file=<file>    Use profile file collected by LLVM PGO (Profile-Guided Optimization)\n");
     printf("  --enable-segue[=<flags>]  Enable using segment register GS as the base address of linear memory,\n");
     printf("                            only available on linux/linux-sgx x86-64, which may improve performance,\n");
@@ -218,7 +218,6 @@ main(int argc, char *argv[])
     option.enable_aux_stack_check = true;
     option.enable_bulk_memory = true;
     option.enable_ref_types = true;
-    option.enable_gc = false;
 
     /* Process options */
     for (argc--, argv++; argc > 0 && argv[0][0] == '-'; argc--, argv++) {
@@ -336,9 +335,6 @@ main(int argc, char *argv[])
         else if (!strcmp(argv[0], "--enable-indirect-mode")) {
             option.is_indirect_mode = true;
         }
-        else if (!strcmp(argv[0], "--enable-gc")) {
-            option.enable_gc = true;
-        }
         else if (!strcmp(argv[0], "--disable-llvm-intrinsics")) {
             option.disable_llvm_intrinsics = true;
         }
@@ -347,6 +343,11 @@ main(int argc, char *argv[])
         }
         else if (!strcmp(argv[0], "--enable-llvm-pgo")) {
             option.enable_llvm_pgo = true;
+        }
+        else if (!strncmp(argv[0], "--enable-llvm-passes=", 21)) {
+            if (argv[0][21] == '\0')
+                PRINT_HELP_AND_EXIT();
+            option.llvm_passes = argv[0] + 21;
         }
         else if (!strncmp(argv[0], "--use-prof-file=", 16)) {
             if (argv[0][16] == '\0')
@@ -415,10 +416,6 @@ main(int argc, char *argv[])
         option.is_sgx_platform = true;
     }
 
-    if (option.enable_gc) {
-        option.enable_ref_types = false;
-    }
-
     wasm_file_name = argv[0];
 
     if (!strcmp(wasm_file_name, out_file_name)) {
@@ -460,7 +457,7 @@ main(int argc, char *argv[])
         goto fail2;
     }
 
-    if (!(comp_data = aot_create_comp_data(wasm_module, option.enable_gc))) {
+    if (!(comp_data = aot_create_comp_data(wasm_module))) {
         printf("%s\n", aot_get_last_error());
         goto fail3;
     }
