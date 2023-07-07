@@ -161,9 +161,6 @@ typedef struct RuntimeInitArgs {
     /* Fast JIT code cache size */
     uint32_t fast_jit_code_cache_size;
 
-    /* Default GC heap size */
-    uint32_t gc_heap_size;
-
     /* Default running mode of the runtime */
     RunningMode running_mode;
 
@@ -917,6 +914,25 @@ wasm_runtime_set_custom_data(wasm_module_inst_t module_inst,
 WASM_RUNTIME_API_EXTERN void *
 wasm_runtime_get_custom_data(wasm_module_inst_t module_inst);
 
+/**
+ * Set the memory bounds checks flag of a WASM module instance.
+ * 
+ * @param module_inst the WASM module instance
+ * @param enable the flag to enable/disable the memory bounds checks
+ */
+WASM_RUNTIME_API_EXTERN void
+wasm_runtime_set_bounds_checks(wasm_module_inst_t module_inst,
+                               bool enable);
+/**
+ * Check if the memory bounds checks flag is enabled for a WASM module instance.
+ * 
+ * @param module_inst the WASM module instance
+ *
+ * @return true if the memory bounds checks flag is enabled, false otherwise
+ */
+WASM_RUNTIME_API_EXTERN bool
+wasm_runtime_is_bounds_checks_enabled(
+    wasm_module_inst_t module_inst);
 /**
  * Allocate memory from the heap of WASM module instance
  *
