@@ -360,6 +360,13 @@
 #define APP_HEAP_SIZE_MIN (256)
 #define APP_HEAP_SIZE_MAX (512 * 1024 * 1024)
 
+/* Default min/max gc heap size of each app */
+#ifndef GC_HEAP_SIZE_DEFAULT
+#define GC_HEAP_SIZE_DEFAULT (128 * 1024)
+#endif
+#define GC_HEAP_SIZE_MIN (4 * 1024)
+#define GC_HEAP_SIZE_MAX (1024 * 1024 * 1024)
+
 /* Default wasm stack size of each app */
 #if defined(BUILD_TARGET_X86_64) || defined(BUILD_TARGET_AMD_64)
 #define DEFAULT_WASM_STACK_SIZE (16 * 1024)
@@ -384,7 +391,7 @@
 #define APP_THREAD_STACK_SIZE_DEFAULT (64 * 1024)
 #define APP_THREAD_STACK_SIZE_MIN (48 * 1024)
 #else
-#define APP_THREAD_STACK_SIZE_DEFAULT (64 * 1024)
+#define APP_THREAD_STACK_SIZE_DEFAULT (32 * 1024)
 #define APP_THREAD_STACK_SIZE_MIN (24 * 1024)
 #endif
 #endif /* end of !(defined(APP_THREAD_STACK_SIZE_DEFAULT) \
@@ -433,6 +440,23 @@
 #define WASM_ENABLE_REF_TYPES 0
 #endif
 
+#ifndef WASM_ENABLE_GC
+#define WASM_ENABLE_GC 0
+#endif
+
+/* GC binaryen compatible mode */
+#ifndef WASM_ENABLE_GC_BINARYEN
+#define WASM_ENABLE_GC_BINARYEN 0
+#endif
+
+#ifndef GC_REFTYPE_MAP_SIZE_DEFAULT
+#define GC_REFTYPE_MAP_SIZE_DEFAULT 64
+#endif
+
+#ifndef GC_RTTOBJ_MAP_SIZE_DEFAULT
+#define GC_RTTOBJ_MAP_SIZE_DEFAULT 64
+#endif
+
 #ifndef WASM_ENABLE_SGX_IPFS
 #define WASM_ENABLE_SGX_IPFS 0
 #endif
@@ -454,11 +478,6 @@
    to GS segment register before calling wasm/aot function. */
 #ifndef WASM_DISABLE_WRITE_GS_BASE
 #define WASM_DISABLE_WRITE_GS_BASE 0
-#endif
-
-/* Configurable bounds checks */
-#ifndef WASM_CONFIGURABLE_BOUNDS_CHECKS
-#define WASM_CONFIGURABLE_BOUNDS_CHECKS 0
 #endif
 
 #endif /* end of _CONFIG_H_ */
