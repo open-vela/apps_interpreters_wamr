@@ -552,8 +552,6 @@ _Static_assert(offsetof(__wasi_subscription_t, u) == 8, "witx calculated offset"
 
 /* keep syncing with wasi_socket_ext.h */
 typedef enum {
-    /* Used only for sock_addr_resolve hints */
-    SOCKET_ANY = -1,
     SOCKET_DGRAM = 0,
     SOCKET_STREAM,
 } __wasi_sock_type_t;
@@ -607,7 +605,7 @@ typedef struct __wasi_addr_t {
     } addr;
 } __wasi_addr_t;
 
-typedef enum { INET4 = 0, INET6, INET_UNSPEC } __wasi_address_family_t;
+typedef enum { INET4 = 0, INET6 } __wasi_address_family_t;
 
 typedef struct __wasi_addr_info_t {
     __wasi_addr_t addr;
