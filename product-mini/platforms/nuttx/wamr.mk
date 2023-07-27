@@ -141,6 +141,12 @@ else
 CFLAGS += -DWASM_ENABLE_WORD_ALIGN_READ=0
 endif
 
+ifeq ($(CONFIG_INTERPRETERS_WAMR_MEM_DUAL_BUS_MIRROR),y)
+CFLAGS += -DWASM_MEM_DUAL_BUS_MIRROR=1
+else
+CFLAGS += -DWASM_MEM_DUAL_BUS_MIRROR=0
+endif
+
 ifeq ($(CONFIG_INTERPRETERS_WAMR_FAST), y)
 CFLAGS += -DWASM_ENABLE_FAST_INTERP=1
 CFLAGS += -DWASM_ENABLE_INTERP=1
@@ -230,6 +236,12 @@ else
 CFLAGS += -DWASM_ENABLE_LIBC_BUILTIN=0
 endif
 
+ifeq ($(CONFIG_INTERPRETERS_WAMR_CONFIGUABLE_BOUNDS_CHECKS),y)
+CFLAGS += -DWASM_CONFIGUABLE_BOUNDS_CHECKS=1
+else
+CFLAGS += -DWASM_CONFIGUABLE_BOUNDS_CHECKS=0
+endif
+
 ifeq ($(CONFIG_INTERPRETERS_WAMR_LIBC_WASI),y)
 CFLAGS += -DWASM_ENABLE_LIBC_WASI=1
 CFLAGS += -I$(IWASM_ROOT)/libraries/libc-wasi/sandboxed-system-primitives/src
@@ -259,18 +271,13 @@ else
 CFLAGS += -DWASM_ENABLE_THREAD_MGR=0
 endif
 
-ifeq ($(CONFIG_INTERPRETERS_WAMR_GC),y)
-CFLAGS += -DWASM_ENABLE_GC=1
-CSRCS += gc_type.c gc_object.c
-VPATH += $(IWASM_ROOT)/common/gc
+ifeq ($(CONFIG_INTERPRETERS_WAMR_LIB_WASI_THREADS),y)
+CFLAGS += -DWASM_ENABLE_LIB_WASI_THREADS=1
+CSRCS += lib_wasi_threads_wrapper.c
+CSRCS += tid_allocator.c
+VPATH += $(IWASM_ROOT)/libraries/lib-wasi-threads
 else
-CFLAGS += -DWASM_ENABLE_GC=0
-endif
-
-ifeq ($(CONFIG_INTERPRETERS_WAMR_GC_MANUALLY),y)
-CFLAGS += -DWASM_GC_MANUALLY=1
-else
-CFLAGS += -DWASM_GC_MANUALLY=0
+CFLAGS += -DWASM_ENABLE_LIB_WASI_THREADS=0
 endif
 
 ifeq ($(CONFIG_INTERPRETERS_WAMR_LIB_PTHREAD),y)
@@ -345,7 +352,6 @@ CSRCS += nuttx_platform.c \
          ems_kfc.c \
          ems_alloc.c \
          ems_hmu.c \
-         ems_gc.c \
          bh_assert.c \
          bh_common.c \
          bh_hashmap.c \
