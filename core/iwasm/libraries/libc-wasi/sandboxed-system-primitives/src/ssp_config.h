@@ -47,8 +47,7 @@
 #define CONFIG_HAS_CLOCK_NANOSLEEP 0
 #endif
 
-#if !defined(__APPLE__) && !defined(__FreeBSD__) && !defined(ESP_PLATFORM) \
-    && !defined(_WIN32)
+#if !defined(__APPLE__) && !defined(__FreeBSD__) && !defined(ESP_PLATFORM)
 #define CONFIG_HAS_FDATASYNC 1
 #else
 #define CONFIG_HAS_FDATASYNC 0
@@ -66,13 +65,13 @@
 #endif
 #endif
 
-#if !defined(__APPLE__) && !defined(ESP_PLATFORM) && !defined(_WIN32)
+#if !defined(__APPLE__) && !defined(ESP_PLATFORM)
 #define CONFIG_HAS_POSIX_FALLOCATE 1
 #else
 #define CONFIG_HAS_POSIX_FALLOCATE 0
 #endif
 
-#if !defined(__APPLE__) && !defined(ESP_PLATFORM) && !defined(_WIN32)
+#if !defined(__APPLE__) && !defined(ESP_PLATFORM)
 #define CONFIG_HAS_PREADV 1
 #else
 #define CONFIG_HAS_PREADV 0
@@ -90,7 +89,7 @@
 #define CONFIG_HAS_PTHREAD_CONDATTR_SETCLOCK 0
 #endif
 
-#if !defined(__APPLE__) && !defined(ESP_PLATFORM) && !defined(_WIN32)
+#if !defined(__APPLE__) && !defined(ESP_PLATFORM)
 #define CONFIG_HAS_PWRITEV 1
 #else
 #define CONFIG_HAS_PWRITEV 0
