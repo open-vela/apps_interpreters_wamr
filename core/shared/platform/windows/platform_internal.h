@@ -29,7 +29,6 @@
 #include <ws2tcpip.h>
 #include <windows.h>
 #include <basetsd.h>
-#include <signal.h>
 
 #ifdef __cplusplus
 extern "C" {
