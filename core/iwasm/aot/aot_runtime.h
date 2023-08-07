@@ -10,6 +10,9 @@
 #include "../common/wasm_runtime_common.h"
 #include "../interpreter/wasm_runtime.h"
 #include "../compilation/aot.h"
+#if WASM_ENABLE_GC != 0
+#include "gc_export.h"
+#endif
 
 #if WASM_ENABLE_WASI_NN != 0
 #include "../libraries/wasi-nn/src/wasi_nn_private.h"
@@ -18,6 +21,20 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* Wasm feature supported, mainly used by AOTTargetInfo now */
+#define WASM_FEATURE_SIMD_128BIT (1 << 0)
+#define WASM_FEATURE_BULK_MEMORY (1 << 1)
+#define WASM_FEATURE_THREADS (1 << 2)
+#define WASM_FEATURE_REF_TYPES (1 << 3)
+#define WASM_FEATURE_TAIL_CALL (1 << 4)
+#define WASM_FEATURE_EXCEPTION_HANDLING (1 << 5)
+#define WASM_FEATURE_GARBAGE_COLLECTION (1 << 6)
+#define WASM_FEATURE_COMPONENT_MODEL (1 << 7)
+#define WASM_FEATURE_MULTIPLE_MEMORY (1 << 8)
+#define WASM_FEATURE_RELAXED_SIMD (1 << 9)
+#define WASM_FEATURE_FLEXIBLE_VECTORS (1 << 10)
+#define WASM_FEATURE_STRING_REF (1 << 11)
 
 typedef enum AOTSectionType {
     AOT_SECTION_TYPE_TARGET_INFO = 0,
@@ -157,9 +174,9 @@ typedef struct AOTModule {
     uint32 table_init_data_count;
     AOTTableInitData **table_init_data_list;
 
-    /* function type info */
-    uint32 func_type_count;
-    AOTFuncType **func_types;
+    /* type info */
+    uint32 type_count;
+    AOTType **types;
 
     /* import global variable info */
     uint32 import_global_count;
@@ -297,8 +314,10 @@ typedef struct AOTTargetInfo {
     uint32 e_version;
     /* Processor-specific flags */
     uint32 e_flags;
+    /* Specify wasm features supported */
+    uint64 feature_flags;
     /* Reserved */
-    uint32 reserved;
+    uint64 reserved;
     /* Arch name */
     char arch[16];
 } AOTTargetInfo;
@@ -600,11 +619,11 @@ aot_table_copy(AOTModuleInstance *module_inst, uint32 src_tbl_idx,
 
 void
 aot_table_fill(AOTModuleInstance *module_inst, uint32 tbl_idx, uint32 length,
-               uint32 val, uint32 data_offset);
+               table_elem_type_t val, uint32 data_offset);
 
 uint32
 aot_table_grow(AOTModuleInstance *module_inst, uint32 tbl_idx,
-               uint32 inc_entries, uint32 init_val);
+               uint32 inc_entries, table_elem_type_t init_val);
 #endif
 
 bool
