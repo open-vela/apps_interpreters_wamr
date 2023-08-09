@@ -3393,11 +3393,7 @@ llvm_jit_call_indirect(WASMExecEnv *exec_env, uint32 tbl_idx, uint32 elem_idx,
 {
     bool ret;
 
-#if WASM_ENABLE_JIT != 0
-    if (Wasm_Module_AoT == exec_env->module_inst->module_type) {
-        return aot_call_indirect(exec_env, tbl_idx, elem_idx, argc, argv);
-    }
-#endif
+    bh_assert(exec_env->module_inst->module_type == Wasm_Module_Bytecode);
 
     ret = call_indirect(exec_env, tbl_idx, elem_idx, argc, argv, false, 0);
 #ifdef OS_ENABLE_HW_BOUND_CHECK
@@ -3424,11 +3420,7 @@ llvm_jit_invoke_native(WASMExecEnv *exec_env, uint32 func_idx, uint32 argc,
     char buf[96];
     bool ret = false;
 
-#if WASM_ENABLE_JIT != 0
-    if (Wasm_Module_AoT == exec_env->module_inst->module_type) {
-        return aot_invoke_native(exec_env, func_idx, argc, argv);
-    }
-#endif
+    bh_assert(exec_env->module_inst->module_type == Wasm_Module_Bytecode);
 
     module_inst = (WASMModuleInstance *)wasm_runtime_get_module_inst(exec_env);
     module = module_inst->module;
@@ -3498,11 +3490,7 @@ llvm_jit_memory_init(WASMModuleInstance *module_inst, uint32 seg_index,
     uint8 *maddr;
     uint64 seg_len = 0;
 
-#if WASM_ENABLE_JIT != 0
-    if (Wasm_Module_AoT == module_inst->module_type) {
-        return aot_memory_init(module_inst, seg_index, offset, len, dst);
-    }
-#endif
+    bh_assert(module_inst->module_type == Wasm_Module_Bytecode);
 
     memory_inst = wasm_get_default_memory(module_inst);
     module = module_inst->module;
@@ -3528,11 +3516,7 @@ llvm_jit_memory_init(WASMModuleInstance *module_inst, uint32 seg_index,
 bool
 llvm_jit_data_drop(WASMModuleInstance *module_inst, uint32 seg_index)
 {
-#if WASM_ENABLE_JIT != 0
-    if (Wasm_Module_AoT == module_inst->module_type) {
-        return aot_data_drop(module_inst, seg_index);
-    }
-#endif
+    bh_assert(module_inst->module_type == Wasm_Module_Bytecode);
 
     module_inst->module->data_segments[seg_index]->data_length = 0;
     /* Currently we can't free the dropped data segment
@@ -3547,11 +3531,7 @@ llvm_jit_drop_table_seg(WASMModuleInstance *module_inst, uint32 tbl_seg_idx)
 {
     WASMTableSeg *tbl_segs;
 
-#if WASM_ENABLE_JIT != 0
-    if (Wasm_Module_AoT == module_inst->module_type) {
-        return aot_drop_table_seg(module_inst, tbl_seg_idx);
-    }
-#endif
+    bh_assert(module_inst->module_type == Wasm_Module_Bytecode);
 
     tbl_segs = module_inst->module->table_segments;
     tbl_segs[tbl_seg_idx].is_dropped = true;
@@ -3565,12 +3545,7 @@ llvm_jit_table_init(WASMModuleInstance *module_inst, uint32 tbl_idx,
     WASMTableInstance *tbl_inst;
     WASMTableSeg *tbl_seg;
 
-#if WASM_ENABLE_JIT != 0
-    if (Wasm_Module_AoT == module_inst->module_type) {
-        return aot_table_init(module_inst, tbl_idx, tbl_seg_idx, length,
-                              src_offset, dst_offset);
-    }
-#endif
+    bh_assert(module_inst->module_type == Wasm_Module_Bytecode);
 
     tbl_inst = wasm_get_table_inst(module_inst, tbl_idx);
     tbl_seg = module_inst->module->table_segments + tbl_seg_idx;
@@ -3614,13 +3589,7 @@ llvm_jit_table_copy(WASMModuleInstance *module_inst, uint32 src_tbl_idx,
     WASMTableInstance *src_tbl_inst;
     WASMTableInstance *dst_tbl_inst;
 
-#if WASM_ENABLE_JIT != 0
-    if (Wasm_Module_AoT == module_inst->module_type) {
-        aot_table_copy(module_inst, src_tbl_idx, dst_tbl_idx, length,
-                       src_offset, dst_offset);
-        return;
-    }
-#endif
+    bh_assert(module_inst->module_type == Wasm_Module_Bytecode);
 
     src_tbl_inst = wasm_get_table_inst(module_inst, src_tbl_idx);
     dst_tbl_inst = wasm_get_table_inst(module_inst, dst_tbl_idx);
@@ -3652,12 +3621,7 @@ llvm_jit_table_fill(WASMModuleInstance *module_inst, uint32 tbl_idx,
 {
     WASMTableInstance *tbl_inst;
 
-#if WASM_ENABLE_JIT != 0
-    if (Wasm_Module_AoT == module_inst->module_type) {
-        aot_table_fill(module_inst, tbl_idx, length, val, data_offset);
-        return;
-    }
-#endif
+    bh_assert(module_inst->module_type == Wasm_Module_Bytecode);
 
     tbl_inst = wasm_get_table_inst(module_inst, tbl_idx);
     bh_assert(tbl_inst);
@@ -3679,11 +3643,7 @@ llvm_jit_table_grow(WASMModuleInstance *module_inst, uint32 tbl_idx,
     WASMTableInstance *tbl_inst;
     uint32 i, orig_size, total_size;
 
-#if WASM_ENABLE_JIT != 0
-    if (Wasm_Module_AoT == module_inst->module_type) {
-        return aot_table_grow(module_inst, tbl_idx, inc_size, init_val);
-    }
-#endif
+    bh_assert(module_inst->module_type == Wasm_Module_Bytecode);
 
     tbl_inst = wasm_get_table_inst(module_inst, tbl_idx);
     if (!tbl_inst) {
@@ -3723,11 +3683,7 @@ llvm_jit_alloc_frame(WASMExecEnv *exec_env, uint32 func_index)
     WASMInterpFrame *frame;
     uint32 size;
 
-#if WASM_ENABLE_JIT != 0
-    if (Wasm_Module_AoT == exec_env->module_inst->module_type) {
-        return aot_alloc_frame(exec_env, func_index);
-    }
-#endif
+    bh_assert(exec_env->module_inst->module_type == Wasm_Module_Bytecode);
 
     module_inst = (WASMModuleInstance *)exec_env->module_inst;
     size = wasm_interp_interp_frame_size(0);
@@ -3756,12 +3712,7 @@ llvm_jit_free_frame(WASMExecEnv *exec_env)
     WASMInterpFrame *frame;
     WASMInterpFrame *prev_frame;
 
-#if WASM_ENABLE_JIT != 0
-    if (Wasm_Module_AoT == exec_env->module_inst->module_type) {
-        aot_free_frame(exec_env);
-        return;
-    }
-#endif
+    bh_assert(exec_env->module_inst->module_type == Wasm_Module_Bytecode);
 
     frame = wasm_exec_env_get_cur_frame(exec_env);
     prev_frame = frame->prev_frame;
