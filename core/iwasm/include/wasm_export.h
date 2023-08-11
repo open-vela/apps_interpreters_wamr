@@ -161,6 +161,9 @@ typedef struct RuntimeInitArgs {
     /* Fast JIT code cache size */
     uint32_t fast_jit_code_cache_size;
 
+    /* Default GC heap size */
+    uint32_t gc_heap_size;
+
     /* Default running mode of the runtime */
     RunningMode running_mode;
 
@@ -186,7 +189,6 @@ enum wasm_valkind_enum {
 
 #ifndef WASM_VAL_T_DEFINED
 #define WASM_VAL_T_DEFINED
-struct wasm_ref_t;
 
 typedef struct wasm_val_t {
     wasm_valkind_t kind;
@@ -198,7 +200,6 @@ typedef struct wasm_val_t {
         double f64;
         /* represent a foreign object, aka externref in .wat */
         uintptr_t foreign;
-        struct wasm_ref_t *ref;
     } of;
 } wasm_val_t;
 #endif
