@@ -928,7 +928,8 @@ create_local_variables(const AOTCompData *comp_data,
                        const AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
                        const AOTFunc *func)
 {
-    AOTFuncType *aot_func_type = comp_data->func_types[func->func_type_index];
+    AOTFuncType *aot_func_type =
+        (AOTFuncType *)comp_data->types[func->func_type_index];
     char local_name[32];
     uint32 i, j = 1;
 
@@ -1512,7 +1513,8 @@ aot_create_func_context(const AOTCompData *comp_data, AOTCompContext *comp_ctx,
                         AOTFunc *func, uint32 func_index)
 {
     AOTFuncContext *func_ctx;
-    AOTFuncType *aot_func_type = comp_data->func_types[func->func_type_index];
+    AOTFuncType *aot_func_type =
+        (AOTFuncType *)comp_data->types[func->func_type_index];
     WASMModule *module = comp_ctx->comp_data->wasm_module;
     WASMFunction *wasm_func = module->functions[func_index];
     AOTBlock *aot_block;
@@ -1667,7 +1669,8 @@ aot_create_func_contexts(const AOTCompData *comp_data, AOTCompContext *comp_ctx)
 }
 
 static bool
-aot_set_llvm_basic_types(AOTLLVMTypes *basic_types, LLVMContextRef context)
+aot_set_llvm_basic_types(AOTLLVMTypes *basic_types, LLVMContextRef context,
+                         int pointer_size)
 {
     basic_types->int1_type = LLVMInt1TypeInContext(context);
     basic_types->int8_type = LLVMInt8TypeInContext(context);
@@ -1732,9 +1735,19 @@ aot_set_llvm_basic_types(AOTLLVMTypes *basic_types, LLVMContextRef context)
     basic_types->funcref_type = LLVMInt32TypeInContext(context);
     basic_types->externref_type = LLVMInt32TypeInContext(context);
 
+    if (pointer_size == 4) {
+        basic_types->intptr_type = basic_types->int32_type;
+        basic_types->intptr_ptr_type = basic_types->int32_ptr_type;
+    }
+    else {
+        basic_types->intptr_type = basic_types->int64_type;
+        basic_types->intptr_ptr_type = basic_types->int64_ptr_type;
+    }
+
     return (basic_types->int8_ptr_type && basic_types->int8_pptr_type
             && basic_types->int16_ptr_type && basic_types->int32_ptr_type
-            && basic_types->int64_ptr_type && basic_types->float32_ptr_type
+            && basic_types->int64_ptr_type && basic_types->intptr_type
+            && basic_types->intptr_ptr_type && basic_types->float32_ptr_type
             && basic_types->float64_ptr_type && basic_types->i8x16_vec_type
             && basic_types->i16x8_vec_type && basic_types->i32x4_vec_type
             && basic_types->i64x2_vec_type && basic_types->f32x4_vec_type
@@ -2311,6 +2324,9 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
     if (option->builtin_intrinsics)
         comp_ctx->builtin_intrinsics = option->builtin_intrinsics;
 
+    if (option->enable_gc)
+        comp_ctx->enable_gc = true;
+
     comp_ctx->opt_level = option->opt_level;
     comp_ctx->size_level = option->size_level;
 
@@ -2827,7 +2843,8 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
         goto fail;
     }
 
-    if (!aot_set_llvm_basic_types(&comp_ctx->basic_types, comp_ctx->context)) {
+    if (!aot_set_llvm_basic_types(&comp_ctx->basic_types, comp_ctx->context,
+                                  comp_ctx->pointer_size)) {
         aot_set_last_error("create LLVM basic types failed.");
         goto fail;
     }
