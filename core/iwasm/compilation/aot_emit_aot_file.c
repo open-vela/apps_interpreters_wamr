@@ -2411,7 +2411,7 @@ aot_resolve_object_data_sections(AOTObjectData *obj_data)
                     && !strcmp(name, "__llvm_prf_cnts")) {
                     snprintf(buf, sizeof(buf), "%s%u", name,
                              llvm_prf_cnts_idx++);
-                    size = (uint32)(strlen(buf) + 1);
+                    size = strlen(buf) + 1;
                     if (!(data_section->name = wasm_runtime_malloc(size))) {
                         aot_set_last_error(
                             "allocate memory for data section name failed.");
@@ -2424,7 +2424,7 @@ aot_resolve_object_data_sections(AOTObjectData *obj_data)
                          && !strcmp(name, "__llvm_prf_data")) {
                     snprintf(buf, sizeof(buf), "%s%u", name,
                              llvm_prf_data_idx++);
-                    size = (uint32)(strlen(buf) + 1);
+                    size = strlen(buf) + 1;
                     if (!(data_section->name = wasm_runtime_malloc(size))) {
                         aot_set_last_error(
                             "allocate memory for data section name failed.");
@@ -2528,15 +2528,15 @@ read_stack_usage_file(const AOTCompContext *comp_ctx, const char *filename,
         }
         if (prefix == aot_func_prefix) {
             if (sz < precheck_stack_size_min) {
-                precheck_stack_size_min = (uint32)sz;
+                precheck_stack_size_min = sz;
             }
             if (sz > precheck_stack_size_max) {
-                precheck_stack_size_max = (uint32)sz;
+                precheck_stack_size_max = sz;
             }
             precheck_found++;
             continue;
         }
-        sizes[func_idx] = (uint32)sz;
+        sizes[func_idx] = sz;
         found++;
     }
     fclose(fp);
@@ -2659,7 +2659,7 @@ aot_resolve_stack_sizes(AOTCompContext *comp_ctx, AOTObjectData *obj_data)
              * aot_emit_object_data_section_info will emit this copy.
              */
             obj_data->stack_sizes_section_name = sec_name;
-            obj_data->stack_sizes_offset = (uint32)addr;
+            obj_data->stack_sizes_offset = addr;
             obj_data->stack_sizes = wasm_runtime_malloc(
                 obj_data->func_count * sizeof(*obj_data->stack_sizes));
             if (obj_data->stack_sizes == NULL) {
@@ -2983,7 +2983,7 @@ aot_resolve_object_relocation_group(AOTObjectData *obj_data,
                 || !strcmp(group->section_name, ".rel.text")) {
                 snprintf(buf, sizeof(buf), "%s%u", relocation->symbol_name,
                          prof_section_idx);
-                size = (uint32)(strlen(buf) + 1);
+                size = strlen(buf) + 1;
                 if (!(relocation->symbol_name = wasm_runtime_malloc(size))) {
                     aot_set_last_error(
                         "allocate memory for relocation symbol name failed.");
@@ -2998,7 +2998,7 @@ aot_resolve_object_relocation_group(AOTObjectData *obj_data,
                                  19)) {
                 snprintf(buf, sizeof(buf), "%s%u", relocation->symbol_name,
                          prof_section_idx);
-                size = (uint32)(strlen(buf) + 1);
+                size = strlen(buf) + 1;
                 if (!(relocation->symbol_name = wasm_runtime_malloc(size))) {
                     aot_set_last_error(
                         "allocate memory for relocation symbol name failed.");
@@ -3164,7 +3164,7 @@ aot_resolve_object_relocation_groups(AOTObjectData *obj_data)
                     || !strcmp(name, ".rel__llvm_prf_data"))) {
                 char buf[32];
                 snprintf(buf, sizeof(buf), "%s%u", name, llvm_prf_data_idx);
-                size = (uint32)(strlen(buf) + 1);
+                size = strlen(buf) + 1;
                 if (!(relocation_group->section_name =
                           wasm_runtime_malloc(size))) {
                     aot_set_last_error(
