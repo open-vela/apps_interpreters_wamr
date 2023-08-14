@@ -205,7 +205,7 @@ memory_instantiate(WASMModuleInstance *module_inst, WASMModuleInstance *parent,
         if (num_bytes_per_page < heap_size) {
             set_error_buf(error_buf, error_buf_size,
                           "failed to insert app heap into linear memory, "
-                          "try using `--heap-size=0` option");
+                          "try using `--heap_size=0` option");
             return NULL;
         }
     }
@@ -264,7 +264,7 @@ memory_instantiate(WASMModuleInstance *module_inst, WASMModuleInstance *parent,
         if (init_page_count > DEFAULT_MAX_PAGES) {
             set_error_buf(error_buf, error_buf_size,
                           "failed to insert app heap into linear memory, "
-                          "try using `--heap-size=0` option");
+                          "try using `--heap_size=0` option");
             return NULL;
         }
         else if (init_page_count == DEFAULT_MAX_PAGES) {
@@ -2080,7 +2080,7 @@ wasm_instantiate(WASMModule *module, WASMModuleInstance *parent,
     for (i = 0; i < module->data_seg_count; i++) {
         WASMMemoryInstance *memory = NULL;
         uint8 *memory_data = NULL;
-        uint64 memory_size = 0;
+        uint32 memory_size = 0;
         WASMDataSeg *data_seg = module->data_segments[i];
 
 #if WASM_ENABLE_BULK_MEMORY != 0
@@ -2093,8 +2093,7 @@ wasm_instantiate(WASMModule *module, WASMModuleInstance *parent,
         bh_assert(memory);
 
         memory_data = memory->memory_data;
-        memory_size =
-            (uint64)memory->num_bytes_per_page * memory->cur_page_count;
+        memory_size = memory->num_bytes_per_page * memory->cur_page_count;
         bh_assert(memory_data || memory_size == 0);
 
         bh_assert(data_seg->base_offset.init_expr_type
@@ -2140,7 +2139,7 @@ wasm_instantiate(WASMModule *module, WASMModuleInstance *parent,
 
         /* check offset + length(could be zero) */
         length = data_seg->data_length;
-        if ((uint64)base_offset + length > memory_size) {
+        if (base_offset + length > memory_size) {
             LOG_DEBUG("base_offset(%d) + length(%d) > memory_size(%d)",
                       base_offset, length, memory_size);
 #if WASM_ENABLE_REF_TYPES != 0 || WASM_ENABLE_GC != 0
