@@ -63,18 +63,22 @@ TEST_F(ObjectPropertyTest, object_set_and_has_and_get_property) {
     bool v1 = false;
     dyntype_to_bool(ctx, boolean_v, &v1);
     EXPECT_EQ(v1, true);
+    dyntype_release(ctx, boolean_v);
 
     dyn_value_t undefined_v = dyntype_get_property(ctx, obj, "prop3");
     EXPECT_TRUE(dyntype_is_undefined(ctx, undefined_v));
+    dyntype_release(ctx, undefined_v);
 
     dyn_value_t null_v = dyntype_get_property(ctx, obj, "prop4");
     EXPECT_TRUE(dyntype_is_null(ctx, null_v));
+    dyntype_release(ctx, null_v);
 
     dyn_value_t str_v = dyntype_get_property(ctx, obj, "prop5");
     char const *target = "string";
     char *v2 = nullptr;
     dyntype_to_cstring(ctx, str_v, &v2);
     EXPECT_STREQ(v2, target);
+    dyntype_free_cstring(ctx, v2);
     dyntype_release(ctx, str_v);
 
     dyn_value_t array_v = dyntype_get_property(ctx, obj, "prop6");
@@ -83,6 +87,7 @@ TEST_F(ObjectPropertyTest, object_set_and_has_and_get_property) {
 
     dyn_value_t extref_v = dyntype_get_property(ctx, obj, "prop7");
     EXPECT_TRUE(dyntype_is_extref(ctx, extref_v));
+    dyntype_release(ctx, extref_v);
 
     dyn_value_t obj1_v = dyntype_get_property(ctx, obj, "prop8");
     EXPECT_TRUE(dyntype_is_object(ctx, obj1_v));
@@ -111,8 +116,13 @@ TEST_F(ObjectPropertyTest, object_set_and_has_and_get_property) {
     EXPECT_EQ(dyntype_delete_property(ctx, obj, "prop7"), 1);
     dyntype_release(ctx, extref);
     dyntype_release(ctx, obj);
+    dyntype_release(ctx, undefined);
+    dyntype_release(ctx, null);
     dyntype_release(ctx, num);
     dyntype_release(ctx, boolean);
+    dyntype_release(ctx, str);
+    dyntype_release(ctx, array);
+    dyntype_release(ctx, obj1);
 }
 
 TEST_F(ObjectPropertyTest, object_define_and_has_and_get_property) {
@@ -133,41 +143,49 @@ TEST_F(ObjectPropertyTest, object_define_and_has_and_get_property) {
     dyn_value_t desc1_v = dyntype_new_boolean(ctx, true);
     dyntype_set_property(ctx, desc1, "configurable", desc1_v);
     dyntype_set_property(ctx, desc1, "value", num);
+    dyntype_release(ctx, desc1_v);
 
     dyn_value_t desc2 = dyntype_new_object(ctx);
     dyn_value_t desc2_v = dyntype_new_boolean(ctx, true);
     dyntype_set_property(ctx, desc2, "writable", desc2_v);
     dyntype_set_property(ctx, desc2, "value", boolean);
+    dyntype_release(ctx, desc2_v);
 
     dyn_value_t desc3 = dyntype_new_object(ctx);
     dyn_value_t desc3_v = dyntype_new_boolean(ctx, true);
     dyntype_set_property(ctx, desc3, "enumerable", desc3_v);
     dyntype_set_property(ctx, desc3, "value", undefined);
+    dyntype_release(ctx, desc3_v);
 
     dyn_value_t desc4 = dyntype_new_object(ctx);
     dyn_value_t desc4_v = dyntype_new_boolean(ctx, false);
     dyntype_set_property(ctx, desc4, "configurable", desc4_v);
     dyntype_set_property(ctx, desc4, "value", null);
+    dyntype_release(ctx, desc4_v);
 
     dyn_value_t desc5 = dyntype_new_object(ctx);
     dyn_value_t desc5_v = dyntype_new_boolean(ctx, false);
     dyntype_set_property(ctx, desc5, "writable", desc5_v);
     dyntype_set_property(ctx, desc5, "value", str);
+    dyntype_release(ctx, desc5_v);
 
     dyn_value_t desc6 = dyntype_new_object(ctx);
     dyn_value_t desc6_v = dyntype_new_boolean(ctx, false);
     dyntype_set_property(ctx, desc6, "enumerable", desc6_v);
     dyntype_set_property(ctx, desc6, "value", array);
+    dyntype_release(ctx, desc6_v);
 
     dyn_value_t desc7 = dyntype_new_object(ctx);
     dyn_value_t desc7_v = dyntype_new_boolean(ctx, true);
     dyntype_set_property(ctx, desc7, "configurable", desc7_v);
     dyntype_set_property(ctx, desc7, "value", extref);
+    dyntype_release(ctx, desc7_v);
 
     dyn_value_t desc8 = dyntype_new_object(ctx);
     dyn_value_t desc8_v = dyntype_new_boolean(ctx, true);
     dyntype_set_property(ctx, desc8, "writable", desc8_v);
     dyntype_set_property(ctx, desc8, "value", obj1);
+    dyntype_release(ctx, desc8_v);
 
     EXPECT_EQ(dyntype_define_property(ctx, obj, "prop1", desc1), DYNTYPE_SUCCESS);
     EXPECT_EQ(dyntype_define_property(ctx, obj, "prop2", desc2), DYNTYPE_SUCCESS);
@@ -188,8 +206,10 @@ TEST_F(ObjectPropertyTest, object_define_and_has_and_get_property) {
     EXPECT_EQ(dyntype_has_property(ctx, obj, "prop8"), 1);
     EXPECT_EQ(dyntype_has_property(ctx, obj, "prop9"), 0);
 
-    EXPECT_EQ(dyntype_define_property(ctx, obj, "prop not a object", dyntype_new_boolean(ctx, false)),
+    dyn_value_t bool_obj = dyntype_new_boolean(ctx, false);
+    EXPECT_EQ(dyntype_define_property(ctx, obj, "prop not a object", bool_obj),
               -DYNTYPE_TYPEERR);
+    dyntype_release(ctx, bool_obj);
 
     dyn_value_t num_v = dyntype_get_property(ctx, obj, "prop1");
     double v = 0;
@@ -201,18 +221,22 @@ TEST_F(ObjectPropertyTest, object_define_and_has_and_get_property) {
     bool v1 = false;
     dyntype_to_bool(ctx, boolean_v, &v1);
     EXPECT_EQ(v1, true);
+    dyntype_release(ctx, boolean_v);
 
     dyn_value_t undefined_v = dyntype_get_property(ctx, obj, "prop3");
     EXPECT_TRUE(dyntype_is_undefined(ctx, undefined_v));
+    dyntype_release(ctx, undefined_v);
 
     dyn_value_t null_v = dyntype_get_property(ctx, obj, "prop4");
     EXPECT_TRUE(dyntype_is_null(ctx, null_v));
+    dyntype_release(ctx, null_v);
 
     dyn_value_t str_v = dyntype_get_property(ctx, obj, "prop5");
     char const *target = "  ";
     char *v2 = nullptr;
     dyntype_to_cstring(ctx, str_v, &v2);
     EXPECT_STREQ(v2, target);
+    dyntype_free_cstring(ctx, v2);
     dyntype_release(ctx, str_v);
 
     dyn_value_t array_v = dyntype_get_property(ctx, obj, "prop6");
@@ -221,6 +245,7 @@ TEST_F(ObjectPropertyTest, object_define_and_has_and_get_property) {
 
     dyn_value_t extref_v = dyntype_get_property(ctx, obj, "prop7");
     EXPECT_TRUE(dyntype_is_extref(ctx, extref_v));
+    dyntype_release(ctx, extref_v);
 
     dyn_value_t obj1_v = dyntype_get_property(ctx, obj, "prop8");
     EXPECT_TRUE(dyntype_is_object(ctx, obj1_v));
@@ -234,6 +259,11 @@ TEST_F(ObjectPropertyTest, object_define_and_has_and_get_property) {
     dyntype_release(ctx, obj);
     dyntype_release(ctx, num);
     dyntype_release(ctx, boolean);
+    dyntype_release(ctx, undefined);
+    dyntype_release(ctx, null);
+    dyntype_release(ctx, str);
+    dyntype_release(ctx, array);
+    dyntype_release(ctx, obj1);
 
     dyntype_release(ctx, desc1);
     dyntype_release(ctx, desc2);
@@ -293,6 +323,12 @@ TEST_F(ObjectPropertyTest, object_set_and_delete_property) {
     dyntype_release(ctx, obj);
     dyntype_release(ctx, num);
     dyntype_release(ctx, boolean);
+    dyntype_release(ctx, undefined);
+    dyntype_release(ctx, null);
+    dyntype_release(ctx, str);
+    dyntype_release(ctx, array);
+    dyntype_release(ctx, extref);
+    dyntype_release(ctx, obj1);
 }
 
 TEST_F(ObjectPropertyTest, object_define_and_delete_property) {
@@ -313,41 +349,49 @@ TEST_F(ObjectPropertyTest, object_define_and_delete_property) {
     dyn_value_t desc1_v = dyntype_new_boolean(ctx, true);
     dyntype_set_property(ctx, desc1, "configurable", desc1_v);
     dyntype_set_property(ctx, desc1, "value", num);
+    dyntype_release(ctx, desc1_v);
 
     dyn_value_t desc2 = dyntype_new_object(ctx);
     dyn_value_t desc2_v = dyntype_new_boolean(ctx, true);
     dyntype_set_property(ctx, desc2, "writable", desc2_v);
     dyntype_set_property(ctx, desc2, "value", boolean);
+    dyntype_release(ctx, desc2_v);
 
     dyn_value_t desc3 = dyntype_new_object(ctx);
     dyn_value_t desc3_v = dyntype_new_boolean(ctx, true);
     dyntype_set_property(ctx, desc3, "enumerable", desc3_v);
     dyntype_set_property(ctx, desc3, "value", undefined);
+    dyntype_release(ctx, desc3_v);
 
     dyn_value_t desc4 = dyntype_new_object(ctx);
     dyn_value_t desc4_v = dyntype_new_boolean(ctx, false);
     dyntype_set_property(ctx, desc4, "configurable", desc4_v);
     dyntype_set_property(ctx, desc4, "value", null);
+    dyntype_release(ctx, desc4_v);
 
     dyn_value_t desc5 = dyntype_new_object(ctx);
     dyn_value_t desc5_v = dyntype_new_boolean(ctx, false);
     dyntype_set_property(ctx, desc5, "writable", desc5_v);
     dyntype_set_property(ctx, desc5, "value", str);
+    dyntype_release(ctx, desc5_v);
 
     dyn_value_t desc6 = dyntype_new_object(ctx);
     dyn_value_t desc6_v = dyntype_new_boolean(ctx, false);
     dyntype_set_property(ctx, desc6, "enumerable", desc6_v);
     dyntype_set_property(ctx, desc6, "value", array);
+    dyntype_release(ctx, desc6_v);
 
     dyn_value_t desc7 = dyntype_new_object(ctx);
     dyn_value_t desc7_v = dyntype_new_boolean(ctx, true);
     dyntype_set_property(ctx, desc7, "configurable", desc7_v);
     dyntype_set_property(ctx, desc7, "value", extref);
+    dyntype_release(ctx, desc7_v);
 
     dyn_value_t desc8 = dyntype_new_object(ctx);
     dyn_value_t desc8_v = dyntype_new_boolean(ctx, true);
     dyntype_set_property(ctx, desc8, "writable", desc8_v);
     dyntype_set_property(ctx, desc8, "value", obj1);
+    dyntype_release(ctx, desc8_v);
 
     EXPECT_EQ(dyntype_define_property(ctx, obj, "prop1", desc1), DYNTYPE_SUCCESS);
     EXPECT_EQ(dyntype_define_property(ctx, obj, "prop2", desc2), DYNTYPE_SUCCESS);
@@ -384,6 +428,12 @@ TEST_F(ObjectPropertyTest, object_define_and_delete_property) {
     dyntype_release(ctx, obj);
     dyntype_release(ctx, num);
     dyntype_release(ctx, boolean);
+    dyntype_release(ctx, undefined);
+    dyntype_release(ctx, null);
+    dyntype_release(ctx, str);
+    dyntype_release(ctx, array);
+    dyntype_release(ctx, extref);
+    dyntype_release(ctx, obj1);
 
     dyntype_release(ctx, desc1);
     dyntype_release(ctx, desc2);
@@ -430,24 +480,30 @@ TEST_F(ObjectPropertyTest, map_function_test) {
     bool has;
     dyntype_to_bool(ctx, ret, &has);
     EXPECT_EQ(has, DYNTYPE_TRUE); // set success
+    dyntype_release(ctx, ret);
 
     ret = dyntype_get_property(ctx, obj, "size");
     double sz;
     dyntype_to_number(ctx, ret, &sz);
     EXPECT_EQ(sz, 2.0); // size is 2
+    dyntype_release(ctx, ret);
 
     ret = dyntype_invoke(ctx, "delete", obj, 1, argv); // delete num -> boolean
     dyntype_to_bool(ctx, ret, &has);
     EXPECT_EQ(has, DYNTYPE_TRUE); // delete success
+    dyntype_release(ctx, ret);
 
     ret = dyntype_get_property(ctx, obj, "size");
     dyntype_to_number(ctx, ret, &sz);
     EXPECT_EQ(sz, 1.0); // size is 1
+    dyntype_release(ctx, ret);
 
     ret = dyntype_invoke(ctx, "clear", obj, 0, argv); // clear
+    dyntype_release(ctx, ret);
     ret = dyntype_get_property(ctx, obj, "size");
     dyntype_to_number(ctx, ret, &sz);
     EXPECT_EQ(sz, 0.0); // size is 0
+    dyntype_release(ctx, ret);
 
     dyntype_release(ctx, num);
     dyntype_release(ctx, boolean);
@@ -491,16 +547,19 @@ TEST_F(ObjectPropertyTest, map_callback_test)
     bool has;
     dyntype_to_bool(ctx, ret, &has);
     EXPECT_EQ(has, DYNTYPE_TRUE); // set success
+    dyntype_release(ctx, ret);
+    dyntype_release(ctx, gkey);
+
 
     ret = dyntype_get_property(ctx, obj, "size");
     double sz;
     dyntype_to_number(ctx, ret, &sz);
     EXPECT_EQ(sz, 10.0); // size is 10
-
     // compile error: undefine symbol dyntype_callback_for_js
     // temp fix: Replace with printing a mock statement at the calling location.
     dyn_value_t func = dyntype_new_extref(ctx, NULL, ExtFunc, NULL);
     EXPECT_EQ(dyntype_is_function(ctx, func), DYNTYPE_TRUE);
+    dyntype_release(ctx, ret);
 
     argv[0] = func;
     ret = dyntype_invoke(ctx, "forEach", obj, 1, argv);
@@ -508,6 +567,7 @@ TEST_F(ObjectPropertyTest, map_callback_test)
     /* We didn't register a callback dispatcher, so the return value should be
      * exception */
     EXPECT_TRUE(dyntype_is_exception(ctx, ret));
+    dyntype_release(ctx, ret);
 
     dyntype_set_callback_dispatcher(ctx, test_callback_dispatcher);
     ret = dyntype_invoke(ctx, "forEach", obj, 1, argv);

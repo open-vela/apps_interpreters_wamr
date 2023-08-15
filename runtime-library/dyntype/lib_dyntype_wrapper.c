@@ -10,10 +10,28 @@
 #include "wamr_utils.h"
 #include "wasm.h"
 
+static void
+dynamic_object_finalizer(wasm_anyref_obj_t obj, void *data)
+{
+    dyn_value_t value = (dyn_value_t)wasm_anyref_obj_get_value(obj);
+    dyntype_release((dyn_ctx_t)data, value);
+}
+
 /* Convert host pointer to anyref */
-#define RETURN_BOX_ANYREF(ptr)                     \
-    do {                                           \
-        return wasm_anyref_obj_new(exec_env, ptr); \
+#define RETURN_BOX_ANYREF(ptr)                                                 \
+    do {                                                                       \
+        wasm_anyref_obj_t any_obj =                                            \
+            (wasm_anyref_obj_t)wasm_anyref_obj_new(exec_env, ptr);             \
+        if (!any_obj) {                                                        \
+            wasm_runtime_set_exception(wasm_runtime_get_module_inst(exec_env), \
+                                       "alloc memory failed");                 \
+            return NULL;                                                       \
+        }                                                                      \
+        wasm_obj_set_gc_finalizer(                                             \
+            exec_env, (wasm_obj_t)any_obj,                                     \
+            (wasm_obj_finalizer_t)dynamic_object_finalizer,                    \
+            UNBOX_ANYREF(ctx));                                                \
+        return any_obj;                                                        \
     } while (0)
 
 #define BOX_ANYREF(ptr) wasm_anyref_obj_new(exec_env, ptr)
@@ -27,7 +45,7 @@ void *
 dyntype_get_context_wrapper(wasm_exec_env_t exec_env)
 {
     dyn_ctx_t ctx = dyntype_get_context();
-    RETURN_BOX_ANYREF(ctx);
+    return wasm_anyref_obj_new(exec_env, ctx);
 }
 
 /******************* Field access *******************/
@@ -259,6 +277,7 @@ dyntype_to_string_wrapper(wasm_exec_env_t exec_env, wasm_anyref_obj_t ctx,
     }
 
     new_string_struct = create_wasm_string(exec_env, value);
+    dyntype_free_cstring(UNBOX_ANYREF(ctx), value);
 
     return (void *)new_string_struct;
 }
@@ -516,7 +535,7 @@ dyntype_get_prototype_wrapper(wasm_exec_env_t exec_env, wasm_anyref_obj_t ctx,
     RETURN_BOX_ANYREF(dyntype_get_prototype(UNBOX_ANYREF(ctx), UNBOX_ANYREF(obj)));
 }
 
-dyn_value_t
+wasm_anyref_obj_t
 dyntype_get_own_property_wrapper(wasm_exec_env_t exec_env,
                                  wasm_anyref_obj_t ctx, wasm_anyref_obj_t obj,
                                  const char *prop)
@@ -585,11 +604,11 @@ dyntype_dump_value_buffer_wrapper(wasm_exec_env_t exec_env,
 
 /******************* Garbage collection *******************/
 
-void
+wasm_anyref_obj_t
 dyntype_hold_wrapper(wasm_exec_env_t exec_env, wasm_anyref_obj_t ctx,
                      wasm_anyref_obj_t obj)
 {
-    return dyntype_hold(UNBOX_ANYREF(ctx), UNBOX_ANYREF(obj));
+    RETURN_BOX_ANYREF(dyntype_hold(UNBOX_ANYREF(ctx), UNBOX_ANYREF(obj)));
 }
 
 void
@@ -954,6 +973,7 @@ call_wasm_func_with_boxing(wasm_exec_env_t exec_env, wasm_anyref_obj_t ctx,
         if (!is_success) {
             wasm_runtime_set_exception(wasm_runtime_get_module_inst(exec_env),
                                        "Call wasm func failed");
+            wasm_runtime_free(argv);
             /* static throw or dynamic throw can not be defined in compilation
              */
             /* workaround: exception-handling proposal is not implemented in
@@ -975,6 +995,7 @@ call_wasm_func_with_boxing(wasm_exec_env_t exec_env, wasm_anyref_obj_t ctx,
             ret = dyntype_new_undefined_wrapper(exec_env, ctx);
         }
 
+        wasm_runtime_free(argv);
         return ret;
     }
     else {

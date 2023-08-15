@@ -14,4 +14,6 @@ typedef struct DynTypeContext {
     JSValue *js_undefined;
     JSValue *js_null;
     dyntype_callback_dispatcher_t cb_dispatcher;
+    JSClassID extref_class_id;
+    JSValue *extref_class;
 } DynTypeContext;
