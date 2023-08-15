@@ -34,6 +34,7 @@ TEST_F(DumpValueTest, dump_value) {
     EXPECT_STREQ(output1.c_str(), str_values[0]);
     dyntype_dump_value_buffer(ctx, num, buffer, 10 * 1024);
     EXPECT_STREQ(buffer, str_values[0]);
+    dyntype_release(ctx, num);
 
     // boolean
     testing::internal::CaptureStdout();
@@ -43,6 +44,7 @@ TEST_F(DumpValueTest, dump_value) {
     EXPECT_STREQ(output2.c_str(), str_values[1]);
     dyntype_dump_value_buffer(ctx, boolean, buffer, 10 * 1024);
     EXPECT_STREQ(buffer, str_values[1]);
+    dyntype_release(ctx, boolean);
 
     // string
     testing::internal::CaptureStdout();
@@ -53,6 +55,7 @@ TEST_F(DumpValueTest, dump_value) {
     EXPECT_STREQ(output3.c_str(), str_values[3]);
     dyntype_dump_value_buffer(ctx, str, buffer, 10 * 1024);
     EXPECT_STREQ(buffer, str_values[2]);
+    dyntype_release(ctx, str);
 
     delete[] buffer;
 }

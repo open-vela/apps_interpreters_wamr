@@ -610,12 +610,15 @@ dyntype_dump_value_buffer(dyn_ctx_t ctx, dyn_value_t obj, void *buffer,
 /******************* Garbage collection *******************/
 
 /**
- * @brief Reclaim the object
+ * @brief Mark the object
  *
  * @param ctx the dynamic type system context
  * @param obj the dynamic value
+ * @return On success, this function return a dyn_value_t which hold a strong
+ * reference to the dynamic object, avoid this object to be claimed until this
+ * dyn_value_t is freed through dyntype_release.
  */
-void
+dyn_value_t
 dyntype_hold(dyn_ctx_t ctx, dyn_value_t obj);
 
 /**
