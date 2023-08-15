@@ -24,11 +24,14 @@ dyntype_dup_value(JSContext *ctx, JSValue value)
 dyn_ctx_t
 dyntype_context_init()
 {
+    JSClassID class_id;
+    dyn_ctx_t ctx = NULL;
+
     if (g_dynamic_context) {
         return g_dynamic_context;
     }
 
-    dyn_ctx_t ctx = malloc(sizeof(DynTypeContext));
+    ctx = malloc(sizeof(DynTypeContext));
     if (!ctx) {
         return NULL;
     }
@@ -52,6 +55,11 @@ dyntype_context_init()
     if (!ctx->js_null) {
         goto fail;
     }
+
+    class_id = 0;
+    ctx->extref_class_id = JS_NewClassID(&class_id);
+
+    (void)class_id;
 
     g_dynamic_context = ctx;
     return ctx;

@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
  */
 
+#include "dyntype.h"
 #include "type.h"
 
 extern JSValue *
@@ -185,8 +186,12 @@ WasmCallBackDataForJS(JSContext *ctx, JSValueConst this_obj, int argc,
     void *vfunc = JS_GetOpaque(func_data[0], JS_CLASS_OBJECT);
     void *exec_env = JS_GetOpaque(func_data[1], JS_CLASS_OBJECT);
     dyn_ctx_t dyntype_ctx = JS_GetOpaque(func_data[2], JS_CLASS_OBJECT);
-    dyn_value_t *args = malloc(sizeof(dyn_value_t) * argc);
+    dyn_value_t *args = NULL;
     dyn_value_t this_dyn_obj = NULL;
+    uint64_t total_size;
+
+    total_size = sizeof(dyn_value_t) * argc;
+    args = malloc(total_size);
 
     if (!args) {
         return JS_NULL;
@@ -198,15 +203,24 @@ WasmCallBackDataForJS(JSContext *ctx, JSValueConst this_obj, int argc,
     this_dyn_obj = dyntype_dup_value(ctx, this_obj);
 
     if (dyntype_ctx->cb_dispatcher) {
-        ret = *(JSValue *)(dyntype_ctx->cb_dispatcher(
-            exec_env, dyntype_ctx, vfunc, this_dyn_obj, argc, args));
+        dyn_value_t res_boxed = dyntype_ctx->cb_dispatcher(
+            exec_env, dyntype_ctx, vfunc, this_dyn_obj, argc, args);
+        ret = JS_DupValue(ctx, *(JSValue *)(res_boxed));
     }
     else {
         ret = JS_ThrowInternalError(
             ctx, "external callback dispatcher not registered");
     }
+    if (args) {
+        for (int i = 0; i < argc; i++) {
+            js_free(ctx, args[i]);
+        }
+        free(args);
+    }
 
-    free(args);
+    if (this_dyn_obj) {
+        js_free(ctx, this_dyn_obj);
+    }
     return ret;
 }
 
@@ -339,10 +353,20 @@ dyntype_new_object_with_class(dyn_ctx_t ctx, const char *name, int argc,
     JSValue obj;
     JSAtom atom = find_atom(ctx->js_ctx, name);
     JSValue global_var = JS_GetGlobalVar(ctx->js_ctx, atom, true);
-    JSValue argv[argc];
+    JSValue *argv = NULL;
+    dyn_value_t res = NULL;
+    uint64_t total_size;
 
     if (JS_IsException(global_var)) {
-        return NULL;
+        goto end;
+    }
+
+    total_size = sizeof(JSValue) * argc;
+    if (total_size > 0) {
+        argv = js_malloc(ctx->js_ctx, total_size);
+        if (!argv) {
+            goto end;
+        }
     }
 
     for (int i = 0; i < argc; i++) {
@@ -352,9 +376,17 @@ dyntype_new_object_with_class(dyn_ctx_t ctx, const char *name, int argc,
     obj = JS_CallConstructorInternal(ctx->js_ctx, global_var, global_var, argc,
                                      argv, 0);
 
+    res = dyntype_dup_value(ctx->js_ctx, obj);
+
+end:
     JS_FreeAtom(ctx->js_ctx, atom);
     JS_FreeValue(ctx->js_ctx, global_var);
-    return dyntype_dup_value(ctx->js_ctx, obj);
+
+    if (argv) {
+        js_free(ctx->js_ctx, argv);
+    }
+
+    return res;
 }
 
 dyn_value_t
@@ -425,14 +457,19 @@ int
 dyntype_set_property(dyn_ctx_t ctx, dyn_value_t obj, const char *prop,
                      dyn_value_t value)
 {
+    int ret;
+    JSValue *val;
     JSValue *obj_ptr = (JSValue *)obj;
+
     if (!JS_IsObject(*obj_ptr)) {
         return -DYNTYPE_TYPEERR;
     }
-    JSValue *val = (JSValue *)value;
-    return JS_SetPropertyStr(ctx->js_ctx, *obj_ptr, prop, *val)
-               ? DYNTYPE_SUCCESS
-               : -DYNTYPE_EXCEPTION;
+    val = (JSValue *)value;
+    ret = JS_SetPropertyStr(ctx->js_ctx, *obj_ptr, prop,
+                            JS_DupValue(ctx->js_ctx, *val))
+              ? DYNTYPE_SUCCESS
+              : -DYNTYPE_EXCEPTION;
+    return ret;
 }
 
 int
@@ -634,6 +671,7 @@ dyntype_to_extref(dyn_ctx_t ctx, dyn_value_t obj, void **pres)
 {
     JSValue *ref_v;
     JSValue *tag_v;
+    int tag;
 
     if (dyntype_is_extref(ctx, obj) == DYNTYPE_FALSE) {
         return -DYNTYPE_TYPEERR;
@@ -643,7 +681,12 @@ dyntype_to_extref(dyn_ctx_t ctx, dyn_value_t obj, void **pres)
     ref_v = dyntype_get_property(ctx, obj, "@ref");
     *pres = (void *)(uintptr_t)JS_VALUE_GET_INT(*ref_v);
 
-    return JS_VALUE_GET_INT(*tag_v);
+    tag = JS_VALUE_GET_INT(*tag_v);
+
+    js_free(ctx->js_ctx, tag_v);
+    js_free(ctx->js_ctx, ref_v);
+
+    return tag;
 }
 
 bool
@@ -955,32 +998,27 @@ dyntype_dump_error(dyn_ctx_t ctx)
 
 /******************* Garbage collection *******************/
 
-void
+dyn_value_t
 dyntype_hold(dyn_ctx_t ctx, dyn_value_t obj)
 {
     JSValue *ptr = (JSValue *)obj;
     if (JS_VALUE_HAS_REF_COUNT(*ptr)) {
         JS_DupValue(ctx->js_ctx, *ptr);
     }
+
+    return dyntype_dup_value(ctx->js_ctx, *ptr);
 }
 
-// TODO: there is exist wild pointer
 void
 dyntype_release(dyn_ctx_t ctx, dyn_value_t obj)
 {
     if (obj == NULL) {
         return;
     }
+
     JSValue *ptr = (JSValue *)(obj);
-    if (JS_VALUE_HAS_REF_COUNT(*ptr)) {
-        JSRefCountHeader *p = (JSRefCountHeader *)JS_VALUE_GET_PTR(*ptr);
-        int ref_cnt = p->ref_count;
-        JS_FreeValue(ctx->js_ctx, *ptr);
-        if (ref_cnt <= 1) {
-            js_free(ctx->js_ctx, obj);
-        }
-    }
-    else {
+    JS_FreeValue(ctx->js_ctx, *ptr);
+    if (obj != ctx->js_undefined && obj != ctx->js_null) {
         js_free(ctx->js_ctx, obj);
     }
 }

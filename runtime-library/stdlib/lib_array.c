@@ -16,6 +16,29 @@
 /* When growing an array, allocate more slots to avoid frequent allocation */
 #define ARRAY_GROW_REDUNDANCE 16
 
+static void
+dynamic_object_finalizer(wasm_anyref_obj_t obj, void *data)
+{
+    dyn_value_t value = (dyn_value_t)wasm_anyref_obj_get_value(obj);
+    dyntype_release((dyn_ctx_t)data, value);
+}
+
+#define RETURN_BOX_ANYREF(ptr)                                                 \
+    do {                                                                       \
+        wasm_anyref_obj_t any_obj =                                            \
+            (wasm_anyref_obj_t)wasm_anyref_obj_new(exec_env, ptr);             \
+        if (!any_obj) {                                                        \
+            wasm_runtime_set_exception(wasm_runtime_get_module_inst(exec_env), \
+                                       "alloc memory failed");                 \
+            return NULL;                                                       \
+        }                                                                      \
+        wasm_obj_set_gc_finalizer(                                             \
+            exec_env, (wasm_obj_t)any_obj,                                     \
+            (wasm_obj_finalizer_t)dynamic_object_finalizer,                    \
+            dyntype_get_context());                                            \
+        return any_obj;                                                        \
+    } while (0)
+
 double
 array_push_generic(wasm_exec_env_t exec_env, void *ctx, void *obj, void *value)
 {
@@ -909,9 +932,18 @@ array_forEach_generic(wasm_exec_env_t exec_env, void *ctx, void *obj,
                       void *closure)
 {
     uint32 i, len, elem_size;
+    wasm_module_inst_t module_inst = wasm_runtime_get_module_inst(exec_env);
     wasm_array_obj_t arr_ref = get_array_ref(obj);
     WASMValue element = { 0 };
     WASMValue context = { 0 }, func_obj = { 0 };
+    dyn_ctx_t dyn_ctx;
+
+    dyn_ctx = dyntype_get_context();
+    if (!dyn_ctx) {
+        wasm_runtime_set_exception((wasm_module_inst_t)module_inst,
+                                   "dynamic context not initialized");
+        return NULL;
+    }
 
     len = get_array_length(obj);
     elem_size = get_array_element_size(arr_ref);
@@ -949,8 +981,7 @@ array_forEach_generic(wasm_exec_env_t exec_env, void *ctx, void *obj,
                                    argc, argv);
     }
 
-    return wasm_anyref_obj_new(exec_env,
-                               dyntype_new_undefined(dyntype_get_context()));
+    RETURN_BOX_ANYREF(dyntype_new_undefined(dyn_ctx));
 }
 
 void *
@@ -1260,7 +1291,15 @@ array_find_generic(wasm_exec_env_t exec_env, void *ctx, void *obj,
     wasm_module_inst_t module_inst = wasm_runtime_get_module_inst(exec_env);
     wasm_module_t module = wasm_runtime_get_module(module_inst);
     wasm_array_type_t arr_type;
+    dyn_ctx_t dyn_ctx;
     void *ex_ptr;
+
+    dyn_ctx = dyntype_get_context();
+    if (!dyn_ctx) {
+        wasm_runtime_set_exception((wasm_module_inst_t)module_inst,
+                                   "dynamic context not initialized");
+        return NULL;
+    }
 
     len = get_array_length(obj);
     arr_type =
@@ -1304,15 +1343,11 @@ array_find_generic(wasm_exec_env_t exec_env, void *ctx, void *obj,
         if (argv[0]) {
             if (arr_elem_ref_type.value_type == VALUE_TYPE_F64
                 && is_mut == mutable) {
-                return wasm_anyref_obj_new(
-                    exec_env,
-                    dyntype_new_number(dyntype_get_context(), element.f64));
+                RETURN_BOX_ANYREF(dyntype_new_number(dyn_ctx, element.f64));
             }
             else if (arr_elem_ref_type.value_type == VALUE_TYPE_I32
                      && is_mut == mutable) {
-                return wasm_anyref_obj_new(
-                    exec_env,
-                    dyntype_new_boolean(dyntype_get_context(), element.i32));
+                RETURN_BOX_ANYREF(dyntype_new_boolean(dyn_ctx, element.i32));
             }
             else if (is_ts_string_type(module,
                                        wasm_obj_get_defined_type(
@@ -1322,20 +1357,18 @@ array_find_generic(wasm_exec_env_t exec_env, void *ctx, void *obj,
                 wasm_array_obj_t a_ref = (wasm_array_obj_t)(field1.gc_obj);
                 const char *str =
                     (const char *)wasm_array_obj_first_elem_addr(a_ref);
-                return wasm_anyref_obj_new(
-                    exec_env, dyntype_new_string(dyntype_get_context(), str));
+                RETURN_BOX_ANYREF(dyntype_new_string(dyn_ctx, str));
             }
             else {
                 ex_ptr = element.gc_obj;
-                return wasm_anyref_obj_new(
-                    exec_env, dyntype_new_extref(dyntype_get_context(), ex_ptr,
-                                                 ExtObj, NULL));
+                RETURN_BOX_ANYREF(
+                    dyntype_new_extref(dyn_ctx, ex_ptr, ExtObj, NULL));
             }
             break;
         }
     }
-    return wasm_anyref_obj_new(exec_env,
-                               dyntype_new_undefined(dyntype_get_context()));
+
+    RETURN_BOX_ANYREF(dyntype_new_undefined(dyn_ctx));
 }
 
 double

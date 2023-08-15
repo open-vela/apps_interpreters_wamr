@@ -24,9 +24,11 @@ class TypesTest : public testing::Test {
 TEST_F(TypesTest, is_undefined) {
     dyn_value_t boolean = dyntype_new_boolean(ctx, false);
     EXPECT_FALSE(dyntype_is_undefined(ctx, boolean));
+    dyntype_release(ctx, boolean);
 
     dyn_value_t number = dyntype_new_number(ctx, 0);
     EXPECT_FALSE(dyntype_is_undefined(ctx, number));
+    dyntype_release(ctx, number);
 
     dyn_value_t obj = dyntype_new_object(ctx);
     EXPECT_FALSE(dyntype_is_undefined(ctx, obj));
@@ -48,8 +50,13 @@ TEST_F(TypesTest, create_number_object) {
         EXPECT_NE(num, nullptr);
         dyntype_dump_value(ctx, num);
 
-        EXPECT_EQ(dyntype_set_property(ctx, num, "not_a_object", dyntype_new_boolean(ctx, false)), -DYNTYPE_TYPEERR);
-        EXPECT_EQ(dyntype_define_property(ctx, num, "not_a_object", dyntype_new_boolean(ctx, false)), -DYNTYPE_TYPEERR);
+        dyn_value_t prop1 = dyntype_new_boolean(ctx, false);
+        dyn_value_t prop2 = dyntype_new_boolean(ctx, false);
+        EXPECT_EQ(dyntype_set_property(ctx, num, "not_a_object", prop1), -DYNTYPE_TYPEERR);
+        EXPECT_EQ(dyntype_define_property(ctx, num, "not_a_object", prop2), -DYNTYPE_TYPEERR);
+        dyntype_release(ctx, prop1);
+        dyntype_release(ctx, prop2);
+
         dyn_value_t prop = dyntype_get_property(ctx, num, "not_a_object");
         EXPECT_TRUE(dyntype_is_undefined(ctx, prop));
         EXPECT_EQ(dyntype_has_property(ctx, num, "not_a_object"), -DYNTYPE_TYPEERR);
@@ -68,9 +75,11 @@ TEST_F(TypesTest, create_number_object) {
         char *temp2;
         EXPECT_EQ(dyntype_to_bool(ctx, num, &temp), -DYNTYPE_TYPEERR);
         EXPECT_EQ(dyntype_to_cstring(ctx, num, &temp2), DYNTYPE_SUCCESS);
+        dyntype_free_cstring(ctx, temp2);
 
         dyntype_to_number(ctx, num, &raw_number);
         EXPECT_EQ(raw_number, check_values[i]);
+        dyntype_release(ctx, num);
     }
 }
 
@@ -81,9 +90,12 @@ TEST_F(TypesTest, create_boolean_object) {
         bool raw_value = 0;
         dyn_value_t boolean = dyntype_new_boolean(ctx, check_values[i]);
         EXPECT_NE(boolean, nullptr);
-        EXPECT_EQ(dyntype_set_property(ctx, boolean, "not_a_object", dyntype_new_boolean(ctx, false)),
+        dyn_value_t prop1 = dyntype_new_boolean(ctx, false);
+        dyn_value_t prop2 = dyntype_new_boolean(ctx, false);
+
+        EXPECT_EQ(dyntype_set_property(ctx, boolean, "not_a_object", prop1),
                   -DYNTYPE_TYPEERR);
-        EXPECT_EQ(dyntype_define_property(ctx, boolean, "not_a_object", dyntype_new_boolean(ctx, false)),
+        EXPECT_EQ(dyntype_define_property(ctx, boolean, "not_a_object", prop2),
                   -DYNTYPE_TYPEERR);
         dyn_value_t prop = dyntype_get_property(ctx, boolean, "not_a_object");
         EXPECT_TRUE(dyntype_is_undefined(ctx, prop));
@@ -106,6 +118,8 @@ TEST_F(TypesTest, create_boolean_object) {
         dyntype_to_bool(ctx, boolean, &raw_value);
         EXPECT_EQ(raw_value, check_values[i]);
 
+        dyntype_release(ctx, prop1);
+        dyntype_release(ctx, prop2);
         dyntype_release(ctx, boolean);
     }
 }
@@ -123,9 +137,12 @@ TEST_F(TypesTest, create_undefined) {
     EXPECT_FALSE(dyntype_is_array(ctx, undefined));
     EXPECT_FALSE(dyntype_is_extref(ctx, undefined));
 
-    EXPECT_EQ(dyntype_set_prototype(ctx, undefined, dyntype_new_boolean(ctx, false)), -DYNTYPE_TYPEERR);
+    dyn_value_t prop = dyntype_new_boolean(ctx, false);
+    EXPECT_EQ(dyntype_set_prototype(ctx, undefined, prop), -DYNTYPE_TYPEERR);
     EXPECT_EQ(dyntype_get_prototype(ctx, undefined), nullptr);
     EXPECT_EQ(dyntype_get_own_property(ctx, undefined, "has not property"), nullptr);
+    dyntype_release(ctx, prop);
+
 
     bool temp;
     double temp1;
@@ -148,9 +165,11 @@ TEST_F(TypesTest, create_null) {
     EXPECT_FALSE(dyntype_is_array(ctx, null));
     EXPECT_FALSE(dyntype_is_extref(ctx, null));
 
-    EXPECT_EQ(dyntype_set_prototype(ctx, null, dyntype_new_boolean(ctx, false)), -DYNTYPE_TYPEERR);
+    dyn_value_t prop = dyntype_new_boolean(ctx, false);
+    EXPECT_EQ(dyntype_set_prototype(ctx, null, prop), -DYNTYPE_TYPEERR);
     EXPECT_EQ(dyntype_get_prototype(ctx, null), nullptr);
     EXPECT_EQ(dyntype_get_own_property(ctx, null, "has not property"), nullptr);
+    dyntype_release(ctx, prop);
 }
 
 TEST_F(TypesTest, create_string) {
@@ -161,9 +180,15 @@ TEST_F(TypesTest, create_string) {
     for (int i = 0; i < sizeof(check_values) / sizeof(check_values[0]); i++) {
         char *raw_value = nullptr;
         dyn_value_t str = dyntype_new_string(ctx, check_values[i]);
+        dyn_value_t str_dup;
         EXPECT_NE(str, nullptr);
-        EXPECT_EQ(dyntype_set_property(ctx, str, "not_a_object", dyntype_new_boolean(ctx, false)), -DYNTYPE_TYPEERR);
-        EXPECT_EQ(dyntype_define_property(ctx, str, "not_a_object", dyntype_new_boolean(ctx, false)), -DYNTYPE_TYPEERR);
+        dyn_value_t prop1 = dyntype_new_boolean(ctx, false);
+        dyn_value_t prop2 = dyntype_new_boolean(ctx, false);
+
+        EXPECT_EQ(dyntype_set_property(ctx, str, "not_a_object", prop1), -DYNTYPE_TYPEERR);
+        EXPECT_EQ(dyntype_define_property(ctx, str, "not_a_object", prop2), -DYNTYPE_TYPEERR);
+        dyntype_release(ctx, prop1);
+        dyntype_release(ctx, prop2);
         dyn_value_t prop = dyntype_get_property(ctx, str, "not_a_object");
         EXPECT_TRUE(dyntype_is_undefined(ctx, prop));
         EXPECT_EQ(dyntype_has_property(ctx, str, "not_a_object"), -DYNTYPE_TYPEERR);
@@ -176,8 +201,8 @@ TEST_F(TypesTest, create_string) {
         EXPECT_TRUE(dyntype_is_string(ctx, str));
         EXPECT_FALSE(dyntype_is_array(ctx, str));
         EXPECT_FALSE(dyntype_is_extref(ctx, str));
-        dyntype_hold(ctx, str);
-        dyntype_release(ctx, str);
+        str_dup = dyntype_hold(ctx, str);
+        dyntype_release(ctx, str_dup);
 
         bool temp;
         double temp1;
@@ -195,9 +220,15 @@ TEST_F(TypesTest, create_string) {
     for (int i = 0; i < sizeof(str_values) / sizeof(str_values[0]); i++) {
         char *raw_value = nullptr;
         dyn_value_t str = dyntype_new_string_with_length(ctx, str_values[i], i);
+        dyn_value_t str_dup;
         EXPECT_NE(str, nullptr);
-        EXPECT_EQ(dyntype_set_property(ctx, str, "not_a_object", dyntype_new_boolean(ctx, false)), -DYNTYPE_TYPEERR);
-        EXPECT_EQ(dyntype_define_property(ctx, str, "not_a_object", dyntype_new_boolean(ctx, false)), -DYNTYPE_TYPEERR);
+        dyn_value_t prop1 = dyntype_new_boolean(ctx, false);
+        dyn_value_t prop2 = dyntype_new_boolean(ctx, false);
+        EXPECT_EQ(dyntype_set_property(ctx, str, "not_a_object", prop1), -DYNTYPE_TYPEERR);
+        EXPECT_EQ(dyntype_define_property(ctx, str, "not_a_object", prop2), -DYNTYPE_TYPEERR);
+        dyntype_release(ctx, prop1);
+        dyntype_release(ctx, prop2);
+
         dyn_value_t prop = dyntype_get_property(ctx, str, "not_a_object");
         EXPECT_TRUE(dyntype_is_undefined(ctx, prop));
         EXPECT_EQ(dyntype_has_property(ctx, str, "not_a_object"), -DYNTYPE_TYPEERR);
@@ -211,8 +242,8 @@ TEST_F(TypesTest, create_string) {
         EXPECT_FALSE(dyntype_is_array(ctx, str));
         EXPECT_FALSE(dyntype_is_extref(ctx, str));
 
-        dyntype_hold(ctx, str);
-        dyntype_release(ctx, str);
+        str_dup = dyntype_hold(ctx, str);
+        dyntype_release(ctx, str_dup);
 
         bool temp;
         double temp1;
@@ -229,6 +260,7 @@ TEST_F(TypesTest, create_string) {
 TEST_F(TypesTest, create_array) {
 
     dyn_value_t array = dyntype_new_array(ctx);
+    dyn_value_t array_dup;
     EXPECT_NE(array, nullptr);
 
     EXPECT_FALSE(dyntype_is_number(ctx, array));
@@ -240,8 +272,8 @@ TEST_F(TypesTest, create_array) {
     EXPECT_TRUE(dyntype_is_array(ctx, array));
     EXPECT_FALSE(dyntype_is_extref(ctx, array));
 
-    dyntype_hold(ctx, array);
-    dyntype_release(ctx, array);
+    array_dup = dyntype_hold(ctx, array);
+    dyntype_release(ctx, array_dup);
 
     bool temp;
     double temp1;
@@ -262,22 +294,23 @@ TEST_F(TypesTest, create_extern_ref) {
         dyntype_new_extref(ctx, (void *)(uintptr_t)data, ExtObj, NULL);
     EXPECT_NE(extobj, nullptr);
 
+    dyn_value_t prop = dyntype_new_boolean(ctx, false);
+    dyn_value_t prop1 = dyntype_new_boolean(ctx, false);
+
     EXPECT_EQ(dyntype_set_property(ctx, extobj, "prop",
-                                   dyntype_new_boolean(ctx, false)),
+                                   prop),
               DYNTYPE_SUCCESS);
     EXPECT_EQ(dyntype_define_property(ctx, extobj, "prop1",
-                                      dyntype_new_boolean(ctx, false)),
+                                      prop1),
               -DYNTYPE_TYPEERR);
-    EXPECT_NE(dyntype_get_property(ctx, extobj, "prop"), nullptr);
+    dyn_value_t get_prop = dyntype_get_property(ctx, extobj, "prop");
+    EXPECT_NE(get_prop, nullptr);
+    dyntype_release(ctx, get_prop);
     EXPECT_EQ(dyntype_has_property(ctx, extobj, "prop"), DYNTYPE_TRUE);
     EXPECT_EQ(dyntype_delete_property(ctx, extobj, "prop"), DYNTYPE_TRUE);
 
     EXPECT_TRUE(dyntype_has_property(ctx, extobj, "@tag"));
     EXPECT_TRUE(dyntype_has_property(ctx, extobj, "@ref"));
-
-    dyn_value_t extobj1 = dyntype_new_extref(ctx, (void *)(uintptr_t)data,
-                                             (external_ref_tag)(ExtArray + 1), NULL);
-    EXPECT_EQ(extobj1, nullptr);
 
     EXPECT_FALSE(dyntype_is_number(ctx, extobj));
     EXPECT_FALSE(dyntype_is_bool(ctx, extobj));
@@ -287,6 +320,11 @@ TEST_F(TypesTest, create_extern_ref) {
     EXPECT_FALSE(dyntype_is_array(ctx, extobj));
     EXPECT_TRUE(dyntype_is_object(ctx, extobj));
     EXPECT_TRUE(dyntype_is_extref(ctx, extobj));
+
+    dyn_value_t extobj1 = dyntype_new_extref(ctx, (void *)(uintptr_t)data,
+                                             (external_ref_tag)(ExtArray + 1), NULL);
+    EXPECT_EQ(extobj1, nullptr);
+    dyntype_release(ctx, extobj1);
 
     dyn_value_t extfunc =
         dyntype_new_extref(ctx, (void *)(uintptr_t)data2, ExtFunc, NULL);
@@ -312,12 +350,15 @@ TEST_F(TypesTest, create_extern_ref) {
     EXPECT_EQ(dyntype_to_extref(ctx, extfunc, &extref_fun), ExtFunc);
     EXPECT_EQ((int)(uintptr_t)extref_fun, 42);
 
+    dyntype_release(ctx, prop);
+    dyntype_release(ctx, prop1);
     dyntype_release(ctx, extobj);
     dyntype_release(ctx, extfunc);
 }
 
 TEST_F(TypesTest, create_object) {
     dyn_value_t obj = dyntype_new_object(ctx);
+    dyn_value_t obj_dup;
     EXPECT_NE(obj, nullptr);
     EXPECT_FALSE(dyntype_is_number(ctx, obj));
     EXPECT_FALSE(dyntype_is_bool(ctx, obj));
@@ -328,8 +369,8 @@ TEST_F(TypesTest, create_object) {
     EXPECT_FALSE(dyntype_is_array(ctx, obj));
     EXPECT_FALSE(dyntype_is_extref(ctx, obj));
 
-    dyntype_hold(ctx, obj);
-    dyntype_release(ctx, obj);
+    obj_dup = dyntype_hold(ctx, obj);
+    dyntype_release(ctx, obj_dup);
 
     bool temp;
     double temp1;
@@ -337,6 +378,7 @@ TEST_F(TypesTest, create_object) {
     EXPECT_EQ(dyntype_to_bool(ctx, obj, &temp), -DYNTYPE_TYPEERR);
     EXPECT_EQ(dyntype_to_number(ctx, obj, &temp1), -DYNTYPE_TYPEERR);
     EXPECT_EQ(dyntype_to_cstring(ctx, obj, &temp2), DYNTYPE_SUCCESS);
+    dyntype_free_cstring(ctx, temp2);
 
     /* Currently we need to manually release the object,
         after GC support finished, this line is not needed */
@@ -346,6 +388,7 @@ TEST_F(TypesTest, create_object) {
 TEST_F(TypesTest, create_map) {
     dyn_value_t obj = dyntype_new_object_with_class(ctx, "Map", 0, NULL);
     dyn_value_t obj1 = dyntype_new_object_with_class(ctx, "Set", 0, NULL);
+    dyn_value_t obj_dup;
     EXPECT_NE(obj, nullptr);
     EXPECT_FALSE(dyntype_is_number(ctx, obj));
     EXPECT_FALSE(dyntype_is_bool(ctx, obj));
@@ -355,8 +398,8 @@ TEST_F(TypesTest, create_map) {
     EXPECT_FALSE(dyntype_is_string(ctx, obj));
     EXPECT_FALSE(dyntype_is_array(ctx, obj));
     EXPECT_FALSE(dyntype_is_extref(ctx, obj));
-    dyntype_hold(ctx, obj);
-    dyntype_release(ctx, obj);
+    obj_dup = dyntype_hold(ctx, obj);
+    dyntype_release(ctx, obj_dup);
 
     bool temp;
     double temp1;
@@ -364,6 +407,7 @@ TEST_F(TypesTest, create_map) {
     EXPECT_EQ(dyntype_to_bool(ctx, obj, &temp), -DYNTYPE_TYPEERR);
     EXPECT_EQ(dyntype_to_number(ctx, obj, &temp1), -DYNTYPE_TYPEERR);
     EXPECT_EQ(dyntype_to_cstring(ctx, obj, &temp2), DYNTYPE_SUCCESS);
+    dyntype_free_cstring(ctx, temp2);
     /* Currently we need to manually release the object,
         after GC support finished, this line is not needed */
 

@@ -51,6 +51,8 @@ TEST_F(OperatorTest, typeof) {
     EXPECT_EQ(dyntype_typeof(ctx, extref_obj), DynExtRefObj);
     EXPECT_EQ(dyntype_typeof(ctx, extref_func), DynExtRefFunc);
 
+    dyntype_release(ctx, num);
+    dyntype_release(ctx, boolean);
     dyntype_release(ctx, obj);
     dyntype_release(ctx, str);
     dyntype_release(ctx, array);
