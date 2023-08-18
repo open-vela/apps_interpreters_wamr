@@ -19,17 +19,6 @@
     } while (0)
 
 static bool
-is_win_platform(AOTCompContext *comp_ctx)
-{
-    char *triple = LLVMGetTargetMachineTriple(comp_ctx->target_machine);
-
-    bh_assert(trip);
-    if (strstr(triple, "win32") || strstr(triple, "win"))
-        return true;
-    return false;
-}
-
-static bool
 create_func_return_block(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx)
 {
     LLVMBasicBlockRef block_curr = LLVMGetInsertBlock(comp_ctx->builder);
@@ -469,7 +458,7 @@ check_app_addr_and_convert(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
     }
 
     /* Check whether exception was thrown when executing the function */
-    if ((comp_ctx->enable_bound_check || is_win_platform(comp_ctx))
+    if (comp_ctx->enable_bound_check
         && !check_call_return(comp_ctx, func_ctx, res)) {
         return false;
     }
@@ -707,7 +696,7 @@ aot_compile_op_call(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
                 goto fail;
             /* Check whether there was exception thrown when executing
                the function */
-            if ((comp_ctx->enable_bound_check || is_win_platform(comp_ctx))
+            if (comp_ctx->enable_bound_check
                 && !check_call_return(comp_ctx, func_ctx, res))
                 goto fail;
         }
@@ -860,8 +849,7 @@ aot_compile_op_call(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
 
         /* Check whether there was exception thrown when executing
            the function */
-        if (!tail_call
-            && (comp_ctx->enable_bound_check || is_win_platform(comp_ctx))
+        if (!tail_call && comp_ctx->enable_bound_check
             && !check_exception_thrown(comp_ctx, func_ctx))
             goto fail;
     }
@@ -1089,7 +1077,7 @@ aot_compile_op_call_indirect(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
     bool ret = false;
 
     /* Check function type index */
-    if (type_idx >= comp_ctx->comp_data->func_type_count) {
+    if (type_idx >= comp_ctx->comp_data->type_count) {
         aot_set_last_error("function type index out of range");
         return false;
     }
@@ -1100,13 +1088,13 @@ aot_compile_op_call_indirect(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
        are equal (the type index of call_indirect opcode and callee func),
        we don't need to check whether the whole function types are equal,
        including param types and result types. */
-    type_idx = wasm_get_smallest_type_idx(comp_ctx->comp_data->func_types,
-                                          comp_ctx->comp_data->func_type_count,
-                                          type_idx);
+    type_idx =
+        wasm_get_smallest_type_idx((WASMTypePtr *)comp_ctx->comp_data->types,
+                                   comp_ctx->comp_data->type_count, type_idx);
     ftype_idx_const = I32_CONST(type_idx);
     CHECK_LLVM_CONST(ftype_idx_const);
 
-    func_type = comp_ctx->comp_data->func_types[type_idx];
+    func_type = (AOTFuncType *)comp_ctx->comp_data->types[type_idx];
     aot_estimate_and_record_stack_usage_for_function_call(comp_ctx, func_ctx,
                                                           func_type);
     func_param_count = func_type->param_count;
@@ -1177,22 +1165,28 @@ aot_compile_op_call_indirect(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
     }
 
     if (!(table_elem = LLVMBuildBitCast(comp_ctx->builder, table_elem,
-                                        INT32_PTR_TYPE, "table_elem_i32p"))) {
+                                        INTPTR_PTR_TYPE, "table_elem_ptr"))) {
         HANDLE_FAILURE("LLVMBuildBitCast");
         goto fail;
     }
 
     /* Load function index */
     if (!(table_elem =
-              LLVMBuildInBoundsGEP2(comp_ctx->builder, I32_TYPE, table_elem,
+              LLVMBuildInBoundsGEP2(comp_ctx->builder, INTPTR_TYPE, table_elem,
                                     &elem_idx, 1, "table_elem"))) {
         HANDLE_FAILURE("LLVMBuildNUWAdd");
         goto fail;
     }
 
-    if (!(func_idx = LLVMBuildLoad2(comp_ctx->builder, I32_TYPE, table_elem,
+    if (!(func_idx = LLVMBuildLoad2(comp_ctx->builder, INTPTR_TYPE, table_elem,
                                     "func_idx"))) {
         aot_set_last_error("llvm build load failed.");
+        goto fail;
+    }
+
+    if (!(func_idx = LLVMBuildIntCast2(comp_ctx->builder, func_idx, I32_TYPE,
+                                       true, "func_idx_i32"))) {
+        aot_set_last_error("llvm build int cast failed.");
         goto fail;
     }
 
@@ -1443,7 +1437,7 @@ aot_compile_op_call_indirect(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
         goto fail;
 
     /* Check whether exception was thrown when executing the function */
-    if ((comp_ctx->enable_bound_check || is_win_platform(comp_ctx))
+    if (comp_ctx->enable_bound_check
         && !check_call_return(comp_ctx, func_ctx, res))
         goto fail;
 
@@ -1495,7 +1489,7 @@ aot_compile_op_call_indirect(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
     }
 
     /* Check whether exception was thrown when executing the function */
-    if ((comp_ctx->enable_bound_check || is_win_platform(comp_ctx))
+    if (comp_ctx->enable_bound_check
         && !check_exception_thrown(comp_ctx, func_ctx))
         goto fail;
 
