@@ -14,10 +14,6 @@
 #include "bh_read_file.h"
 #include "wasm_export.h"
 
-#if WASM_ENABLE_LIBC_WASI != 0
-#include "../common/libc_wasi.c"
-#endif
-
 #if BH_HAS_DLFCN
 #include <dlfcn.h>
 #endif
@@ -55,10 +51,6 @@ print_help()
     printf("  --jit-codecache-size=n   Set fast jit maximum code cache size in bytes,\n");
     printf("                           default is %u KB\n", FAST_JIT_DEFAULT_CODE_CACHE_SIZE / 1024);
 #endif
-#if WASM_ENABLE_GC != 0
-    printf("  --gc-heap-size=n         Set maximum gc heap size in bytes,\n");
-    printf("                           default is %u KB\n", GC_HEAP_SIZE_DEFAULT / 1024);
-#endif
 #if WASM_ENABLE_JIT != 0
     printf("  --llvm-jit-size-level=n  Set LLVM JIT size level, default is 3\n");
     printf("  --llvm-jit-opt-level=n   Set LLVM JIT optimization level, default is 3\n");
@@ -77,7 +69,21 @@ print_help()
     printf("  --disable-bounds-checks  Disable bounds checks for memory accesses\n");
 #endif
 #if WASM_ENABLE_LIBC_WASI != 0
-    libc_wasi_print_help();
+    printf("  --env=<env>              Pass wasi environment variables with \"key=value\"\n");
+    printf("                           to the program, for example:\n");
+    printf("                             --env=\"key1=value1\" --env=\"key2=value2\"\n");
+    printf("  --dir=<dir>              Grant wasi access to the given host directories\n");
+    printf("                           to the program, for example:\n");
+    printf("                             --dir=<dir1> --dir=<dir2>\n");
+    printf("  --addr-pool=<addrs>      Grant wasi access to the given network addresses in\n");
+    printf("                           CIRD notation to the program, seperated with ',',\n");
+    printf("                           for example:\n");
+    printf("                             --addr-pool=1.2.3.4/15,2.3.4.5/16\n");
+    printf("  --allow-resolve=<domain> Allow the lookup of the specific domain name or domain\n");
+    printf("                           name suffixes using a wildcard, for example:\n");
+    printf("                           --allow-resolve=example.com # allow the lookup of the specific domain\n");
+    printf("                           --allow-resolve=*.example.com # allow the lookup of all subdomains\n");
+    printf("                           --allow-resolve=* # allow any lookup\n");
 #endif
 #if BH_HAS_DLFCN
     printf("  --native-lib=<lib>       Register native libraries to the WASM module, which\n");
@@ -256,94 +262,144 @@ resolve_segue_flags(char *str_flags)
 }
 #endif /* end of WASM_ENABLE_JIT != 0 */
 
+#if WASM_ENABLE_LIBC_WASI != 0
+static bool
+validate_env_str(char *env)
+{
+    char *p = env;
+    int key_len = 0;
+
+    while (*p != '\0' && *p != '=') {
+        key_len++;
+        p++;
+    }
+
+    if (*p != '=' || key_len == 0)
+        return false;
+
+    return true;
+}
+#endif
+
 #if BH_HAS_DLFCN
-typedef uint32 (*get_native_lib_func)(char **p_module_name,
-                                      NativeSymbol **p_native_symbols);
+struct native_lib {
+    void *handle;
+
+    uint32 (*get_native_lib)(char **p_module_name,
+                             NativeSymbol **p_native_symbols);
+    int (*init_native_lib)(void);
+    void (*deinit_native_lib)(void);
+
+    char *module_name;
+    NativeSymbol *native_symbols;
+    uint32 n_native_symbols;
+};
+
+struct native_lib *
+load_native_lib(const char *name)
+{
+    struct native_lib *lib = wasm_runtime_malloc(sizeof(*lib));
+    if (lib == NULL) {
+        LOG_WARNING("warning: failed to load native library %s because of "
+                    "allocation failure",
+                    name);
+        goto fail;
+    }
+    memset(lib, 0, sizeof(*lib));
+
+    /* open the native library */
+    if (!(lib->handle = dlopen(name, RTLD_NOW | RTLD_GLOBAL))
+        && !(lib->handle = dlopen(name, RTLD_LAZY))) {
+        LOG_WARNING("warning: failed to load native library %s", name);
+        goto fail;
+    }
+
+    lib->init_native_lib = dlsym(lib->handle, "init_native_lib");
+    lib->get_native_lib = dlsym(lib->handle, "get_native_lib");
+    lib->deinit_native_lib = dlsym(lib->handle, "deinit_native_lib");
+
+    if (!lib->get_native_lib) {
+        LOG_WARNING("warning: failed to lookup `get_native_lib` function "
+                    "from native lib %s",
+                    name);
+        goto fail;
+    }
+
+    if (lib->init_native_lib) {
+        int ret = lib->init_native_lib();
+        if (ret != 0) {
+            LOG_WARNING("warning: `init_native_lib` function from native "
+                        "lib %s failed with %d",
+                        name, ret);
+            goto fail;
+        }
+    }
+
+    lib->n_native_symbols =
+        lib->get_native_lib(&lib->module_name, &lib->native_symbols);
+
+    /* register native symbols */
+    if (!(lib->n_native_symbols > 0 && lib->module_name && lib->native_symbols
+          && wasm_runtime_register_natives(
+              lib->module_name, lib->native_symbols, lib->n_native_symbols))) {
+        LOG_WARNING("warning: failed to register native lib %s", name);
+        if (lib->deinit_native_lib) {
+            lib->deinit_native_lib();
+        }
+        goto fail;
+    }
+    return lib;
+fail:
+    if (lib != NULL) {
+        if (lib->handle != NULL) {
+            dlclose(lib->handle);
+        }
+        wasm_runtime_free(lib);
+    }
+    return NULL;
+}
 
 static uint32
 load_and_register_native_libs(const char **native_lib_list,
                               uint32 native_lib_count,
-                              void **native_handle_list)
+                              struct native_lib **native_lib_loaded_list)
 {
-    uint32 i, native_handle_count = 0, n_native_symbols;
-    NativeSymbol *native_symbols;
-    char *module_name;
-    void *handle;
+    uint32 i, native_lib_loaded_count = 0;
 
     for (i = 0; i < native_lib_count; i++) {
-        /* open the native library */
-        if (!(handle = dlopen(native_lib_list[i], RTLD_NOW | RTLD_GLOBAL))
-            && !(handle = dlopen(native_lib_list[i], RTLD_LAZY))) {
-            LOG_WARNING("warning: failed to load native library %s",
-                        native_lib_list[i]);
+        struct native_lib *lib = load_native_lib(native_lib_list[i]);
+        if (lib == NULL) {
             continue;
         }
-
-        /* lookup get_native_lib func */
-        get_native_lib_func get_native_lib = dlsym(handle, "get_native_lib");
-        if (!get_native_lib) {
-            LOG_WARNING("warning: failed to lookup `get_native_lib` function "
-                        "from native lib %s",
-                        native_lib_list[i]);
-            dlclose(handle);
-            continue;
-        }
-
-        n_native_symbols = get_native_lib(&module_name, &native_symbols);
-
-        /* register native symbols */
-        if (!(n_native_symbols > 0 && module_name && native_symbols
-              && wasm_runtime_register_natives(module_name, native_symbols,
-                                               n_native_symbols))) {
-            LOG_WARNING("warning: failed to register native lib %s",
-                        native_lib_list[i]);
-            dlclose(handle);
-            continue;
-        }
-
-        native_handle_list[native_handle_count++] = handle;
+        native_lib_loaded_list[native_lib_loaded_count++] = lib;
     }
 
-    return native_handle_count;
+    return native_lib_loaded_count;
 }
 
 static void
 unregister_and_unload_native_libs(uint32 native_lib_count,
-                                  void **native_handle_list)
+                                  struct native_lib **native_lib_loaded_list)
 {
-    uint32 i, n_native_symbols;
-    NativeSymbol *native_symbols;
-    char *module_name;
-    void *handle;
+    uint32 i;
 
     for (i = 0; i < native_lib_count; i++) {
-        handle = native_handle_list[i];
-
-        /* lookup get_native_lib func */
-        get_native_lib_func get_native_lib = dlsym(handle, "get_native_lib");
-        if (!get_native_lib) {
-            LOG_WARNING("warning: failed to lookup `get_native_lib` function "
-                        "from native lib %p",
-                        handle);
-            continue;
-        }
-
-        n_native_symbols = get_native_lib(&module_name, &native_symbols);
-        if (n_native_symbols == 0 || module_name == NULL
-            || native_symbols == NULL) {
-            LOG_WARNING("warning: get_native_lib returned different values for "
-                        "native lib %p",
-                        handle);
-            continue;
-        }
+        struct native_lib *lib = native_lib_loaded_list[i];
 
         /* unregister native symbols */
-        if (!wasm_runtime_unregister_natives(module_name, native_symbols)) {
-            LOG_WARNING("warning: failed to unregister native lib %p", handle);
+        if (!wasm_runtime_unregister_natives(lib->module_name,
+                                             lib->native_symbols)) {
+            LOG_WARNING("warning: failed to unregister native lib %p",
+                        lib->handle);
             continue;
         }
 
-        dlclose(handle);
+        if (lib->deinit_native_lib) {
+            lib->deinit_native_lib();
+        }
+
+        dlclose(lib->handle);
+        wasm_runtime_free(lib);
     }
 }
 #endif /* BH_HAS_DLFCN */
@@ -449,9 +505,6 @@ main(int argc, char *argv[])
 #if WASM_ENABLE_FAST_JIT != 0
     uint32 jit_code_cache_size = FAST_JIT_DEFAULT_CODE_CACHE_SIZE;
 #endif
-#if WASM_ENABLE_GC != 0
-    uint32 gc_heap_size = GC_HEAP_SIZE_DEFAULT;
-#endif
 #if WASM_ENABLE_JIT != 0
     uint32 llvm_jit_size_level = 3;
     uint32 llvm_jit_opt_level = 3;
@@ -471,13 +524,20 @@ main(int argc, char *argv[])
     bool disable_bounds_checks = false;
 #endif
 #if WASM_ENABLE_LIBC_WASI != 0
-    libc_wasi_parse_context_t wasi_parse_ctx;
+    const char *dir_list[8] = { NULL };
+    uint32 dir_list_size = 0;
+    const char *env_list[8] = { NULL };
+    uint32 env_list_size = 0;
+    const char *addr_pool[8] = { NULL };
+    uint32 addr_pool_size = 0;
+    const char *ns_lookup_pool[8] = { NULL };
+    uint32 ns_lookup_pool_size = 0;
 #endif
 #if BH_HAS_DLFCN
     const char *native_lib_list[8] = { NULL };
     uint32 native_lib_count = 0;
-    void *native_handle_list[8] = { NULL };
-    uint32 native_handle_count = 0;
+    struct native_lib *native_lib_loaded_list[8];
+    uint32 native_lib_loaded_count = 0;
 #endif
 #if WASM_ENABLE_DEBUG_INTERP != 0
     char *ip_addr = NULL;
@@ -485,10 +545,6 @@ main(int argc, char *argv[])
 #endif
 #if WASM_ENABLE_STATIC_PGO != 0
     const char *gen_prof_file = NULL;
-#endif
-
-#if WASM_ENABLE_LIBC_WASI != 0
-    memset(&wasi_parse_ctx, 0, sizeof(wasi_parse_ctx));
 #endif
 
     /* Process options. */
@@ -553,13 +609,6 @@ main(int argc, char *argv[])
             jit_code_cache_size = atoi(argv[0] + 21);
         }
 #endif
-#if WASM_ENABLE_GC != 0
-        else if (!strncmp(argv[0], "--gc-heap-size=", 15)) {
-            if (argv[0][21] == '\0')
-                return print_help();
-            gc_heap_size = atoi(argv[0] + 15);
-        }
-#endif
 #if WASM_ENABLE_JIT != 0
         else if (!strncmp(argv[0], "--llvm-jit-size-level=", 22)) {
             if (argv[0][22] == '\0')
@@ -601,6 +650,70 @@ main(int argc, char *argv[])
                 return print_help();
         }
 #endif /* end of WASM_ENABLE_JIT != 0 */
+#if WASM_ENABLE_LIBC_WASI != 0
+        else if (!strncmp(argv[0], "--dir=", 6)) {
+            if (argv[0][6] == '\0')
+                return print_help();
+            if (dir_list_size >= sizeof(dir_list) / sizeof(char *)) {
+                printf("Only allow max dir number %d\n",
+                       (int)(sizeof(dir_list) / sizeof(char *)));
+                return 1;
+            }
+            dir_list[dir_list_size++] = argv[0] + 6;
+        }
+        else if (!strncmp(argv[0], "--env=", 6)) {
+            char *tmp_env;
+
+            if (argv[0][6] == '\0')
+                return print_help();
+            if (env_list_size >= sizeof(env_list) / sizeof(char *)) {
+                printf("Only allow max env number %d\n",
+                       (int)(sizeof(env_list) / sizeof(char *)));
+                return 1;
+            }
+            tmp_env = argv[0] + 6;
+            if (validate_env_str(tmp_env))
+                env_list[env_list_size++] = tmp_env;
+            else {
+                printf("Wasm parse env string failed: expect \"key=value\", "
+                       "got \"%s\"\n",
+                       tmp_env);
+                return print_help();
+            }
+        }
+        /* TODO: parse the configuration file via --addr-pool-file */
+        else if (!strncmp(argv[0], "--addr-pool=", strlen("--addr-pool="))) {
+            /* like: --addr-pool=100.200.244.255/30 */
+            char *token = NULL;
+
+            if ('\0' == argv[0][12])
+                return print_help();
+
+            token = strtok(argv[0] + strlen("--addr-pool="), ",");
+            while (token) {
+                if (addr_pool_size >= sizeof(addr_pool) / sizeof(char *)) {
+                    printf("Only allow max address number %d\n",
+                           (int)(sizeof(addr_pool) / sizeof(char *)));
+                    return 1;
+                }
+
+                addr_pool[addr_pool_size++] = token;
+                token = strtok(NULL, ";");
+            }
+        }
+        else if (!strncmp(argv[0], "--allow-resolve=", 16)) {
+            if (argv[0][16] == '\0')
+                return print_help();
+            if (ns_lookup_pool_size
+                >= sizeof(ns_lookup_pool) / sizeof(ns_lookup_pool[0])) {
+                printf(
+                    "Only allow max ns lookup number %d\n",
+                    (int)(sizeof(ns_lookup_pool) / sizeof(ns_lookup_pool[0])));
+                return 1;
+            }
+            ns_lookup_pool[ns_lookup_pool_size++] = argv[0] + 16;
+        }
+#endif /* WASM_ENABLE_LIBC_WASI */
 #if BH_HAS_DLFCN
         else if (!strncmp(argv[0], "--native-lib=", 13)) {
             if (argv[0][13] == '\0')
@@ -656,22 +769,8 @@ main(int argc, char *argv[])
                    patch);
             return 0;
         }
-        else {
-#if WASM_ENABLE_LIBC_WASI != 0
-            libc_wasi_parse_result_t result =
-                libc_wasi_parse(argv[0], &wasi_parse_ctx);
-            switch (result) {
-                case LIBC_WASI_PARSE_RESULT_OK:
-                    continue;
-                case LIBC_WASI_PARSE_RESULT_NEED_HELP:
-                    return print_help();
-                case LIBC_WASI_PARSE_RESULT_BAD_PARAM:
-                    return 1;
-            }
-#else
+        else
             return print_help();
-#endif
-        }
     }
 
     if (argc == 0)
@@ -699,10 +798,6 @@ main(int argc, char *argv[])
     init_args.fast_jit_code_cache_size = jit_code_cache_size;
 #endif
 
-#if WASM_ENABLE_GC != 0
-    init_args.gc_heap_size = gc_heap_size;
-#endif
-
 #if WASM_ENABLE_JIT != 0
     init_args.llvm_jit_size_level = llvm_jit_size_level;
     init_args.llvm_jit_opt_level = llvm_jit_opt_level;
@@ -726,8 +821,8 @@ main(int argc, char *argv[])
 #endif
 
 #if BH_HAS_DLFCN
-    native_handle_count = load_and_register_native_libs(
-        native_lib_list, native_lib_count, native_handle_list);
+    native_lib_loaded_count = load_and_register_native_libs(
+        native_lib_list, native_lib_count, native_lib_loaded_list);
 #endif
 
     /* load WASM byte buffer from WASM bin file */
@@ -768,7 +863,12 @@ main(int argc, char *argv[])
     }
 
 #if WASM_ENABLE_LIBC_WASI != 0
-    libc_wasi_init(wasm_module, argc, argv, &wasi_parse_ctx);
+    wasm_runtime_set_wasi_args(wasm_module, dir_list, dir_list_size, NULL, 0,
+                               env_list, env_list_size, argv, argc);
+
+    wasm_runtime_set_wasi_addr_pool(wasm_module, addr_pool, addr_pool_size);
+    wasm_runtime_set_wasi_ns_lookup_pool(wasm_module, ns_lookup_pool,
+                                         ns_lookup_pool_size);
 #endif
 
     /* instantiate the module */
@@ -856,7 +956,8 @@ fail2:
 fail1:
 #if BH_HAS_DLFCN
     /* unload the native libraries */
-    unregister_and_unload_native_libs(native_handle_count, native_handle_list);
+    unregister_and_unload_native_libs(native_lib_loaded_count,
+                                      native_lib_loaded_list);
 #endif
 
     /* destroy runtime environment */
