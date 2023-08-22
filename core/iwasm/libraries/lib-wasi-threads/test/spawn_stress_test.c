@@ -18,9 +18,8 @@
 
 enum CONSTANTS {
     NUM_ITER = 100000,
-    NUM_RETRY = 8,
+    NUM_RETRY = 5,
     MAX_NUM_THREADS = 8,
-    RETRY_SLEEP_TIME_US = 2000,
 };
 
 unsigned prime_numbers_count = 0;
@@ -63,13 +62,11 @@ void
 spawn_thread(pthread_t *thread, unsigned int *arg)
 {
     int status_code = -1;
-    int timeout_us = RETRY_SLEEP_TIME_US;
     for (int tries = 0; status_code != 0 && tries < NUM_RETRY; ++tries) {
         status_code = pthread_create(thread, NULL, &check_if_prime, arg);
         assert(status_code == 0 || status_code == EAGAIN);
         if (status_code == EAGAIN) {
-            usleep(timeout_us);
-            timeout_us *= 2;
+            usleep(2000);
         }
     }
 
@@ -98,7 +95,7 @@ main(int argc, char **argv)
 
         args[thread_num] = factorised_number;
 
-        usleep(RETRY_SLEEP_TIME_US);
+        usleep(2000);
         spawn_thread(&threads[thread_num], &args[thread_num]);
         assert(threads[thread_num] != 0);
     }
