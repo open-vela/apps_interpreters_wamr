@@ -194,7 +194,6 @@ typedef struct AOTLLVMTypes {
     LLVMTypeRef int16_type;
     LLVMTypeRef int32_type;
     LLVMTypeRef int64_type;
-    LLVMTypeRef intptr_type;
     LLVMTypeRef float32_type;
     LLVMTypeRef float64_type;
     LLVMTypeRef void_type;
@@ -204,7 +203,6 @@ typedef struct AOTLLVMTypes {
     LLVMTypeRef int16_ptr_type;
     LLVMTypeRef int32_ptr_type;
     LLVMTypeRef int64_ptr_type;
-    LLVMTypeRef intptr_ptr_type;
     LLVMTypeRef float32_ptr_type;
     LLVMTypeRef float64_ptr_type;
 
@@ -231,8 +229,6 @@ typedef struct AOTLLVMTypes {
 
     LLVMTypeRef funcref_type;
     LLVMTypeRef externref_type;
-    LLVMTypeRef gc_ref_type;
-    LLVMTypeRef gc_ref_ptr_type;
 } AOTLLVMTypes;
 
 typedef struct AOTLLVMConsts {
@@ -282,8 +278,6 @@ typedef struct AOTLLVMConsts {
     LLVMValueRef i32x8_zero;
     LLVMValueRef i32x4_zero;
     LLVMValueRef i32x2_zero;
-    LLVMValueRef gc_ref_null;
-    LLVMValueRef i8_ptr_null;
 } AOTLLVMConsts;
 
 /**
@@ -378,9 +372,6 @@ typedef struct AOTCompContext {
     /* Whether optimize the JITed code */
     bool optimize;
 
-    /* Enable GC */
-    bool enable_gc;
-
     uint32 opt_level;
     uint32 size_level;
 
@@ -456,7 +447,6 @@ typedef struct AOTCompOption {
     bool disable_llvm_lto;
     bool enable_llvm_pgo;
     bool enable_stack_estimation;
-    bool enable_gc;
     char *use_prof_file;
     uint32 opt_level;
     uint32 size_level;
