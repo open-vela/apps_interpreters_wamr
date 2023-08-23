@@ -29,7 +29,6 @@
 #include <ws2tcpip.h>
 #include <windows.h>
 #include <basetsd.h>
-#include <signal.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -57,11 +56,6 @@ typedef void *korp_thread;
 typedef void *korp_tid;
 typedef void *korp_mutex;
 typedef void *korp_sem;
-
-typedef struct {
-    SRWLOCK lock;
-    bool exclusive;
-} korp_rwlock;
 
 /**
  * Create the mutex when os_mutex_lock is called, and no need to
