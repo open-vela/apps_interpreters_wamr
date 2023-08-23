@@ -9,9 +9,22 @@ readonly MODE=$1
 readonly TARGET=$2
 
 readonly WORK_DIR=$PWD
-readonly PLATFORM=$(uname -s | tr A-Z a-z)
+
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
+    readonly PLATFORM=windows
+    readonly PYTHON_EXE=python
+    # see https://github.com/pypa/virtualenv/commit/993ba1316a83b760370f5a3872b3f5ef4dd904c1
+    readonly VENV_BIN_DIR=Scripts
+    readonly IWASM_EXE=$(cygpath -m "${WORK_DIR}/../../../../product-mini/platforms/${PLATFORM}/build/RelWithDebInfo/iwasm.exe")
+else
+    readonly PLATFORM=$(uname -s | tr A-Z a-z)
+    readonly VENV_BIN_DIR=bin
+    readonly PYTHON_EXE=python3
+    readonly IWASM_EXE="${WORK_DIR}/../../../../product-mini/platforms/${PLATFORM}/build/iwasm"
+fi
+
 readonly WAMR_DIR="${WORK_DIR}/../../../.."
-readonly IWASM_CMD="${WORK_DIR}/../../../../product-mini/platforms/${PLATFORM}/build/iwasm \
+readonly IWASM_CMD="${IWASM_EXE} \
     --allow-resolve=google-public-dns-a.google.com \
     --addr-pool=::1/128,127.0.0.1/32"
 
@@ -32,12 +45,12 @@ run_aot_tests () {
         for stress_test in "${STRESS_TESTS[@]}"; do
             if [ "$test_wasm" == "$stress_test" ]; then
                 iwasm="${IWASM_CMD_STRESS}"
-            fi  
+            fi
         done
 
         test_aot="${test_wasm%.wasm}.aot"
         test_json="${test_wasm%.wasm}.json"
- 
+
         if [ -f ${test_wasm} ]; then
             expected=$(jq .exit_code ${test_json})
         fi
@@ -63,8 +76,8 @@ run_aot_tests () {
 }
 
 if [[ $MODE != "aot" ]];then
-    python3 -m venv wasi-env && source wasi-env/bin/activate
-    python3 -m pip install -r test-runner/requirements.txt
+    $PYTHON_EXE -m venv wasi-env && source wasi-env/${VENV_BIN_DIR}/activate
+    $PYTHON_EXE -m pip install -r test-runner/requirements.txt
 
     # Stress tests require max-threads=8 so they're executed separately
     for stress_test in "${STRESS_TESTS[@]}"; do
@@ -79,7 +92,7 @@ if [[ $MODE != "aot" ]];then
         fi
     done
 
-    TEST_RUNTIME_EXE="${IWASM_CMD}" python3 test-runner/wasi_test_runner.py \
+    TEST_RUNTIME_EXE="${IWASM_CMD}" $PYTHON_EXE test-runner/wasi_test_runner.py \
             -r adapters/wasm-micro-runtime.py \
             -t \
                 ${C_TESTS} \
