@@ -840,6 +840,11 @@ main(int argc, char *argv[])
 #endif
 
     ret = 0;
+    if (!wasm_application_execute_func(wasm_module_inst, "_start", 0, NULL)) {
+        printf("%s\n", wasm_runtime_get_exception(wasm_module_inst));
+        goto fail3;
+    }
+
     if (is_repl_mode) {
         app_instance_repl(wasm_module_inst);
     }
