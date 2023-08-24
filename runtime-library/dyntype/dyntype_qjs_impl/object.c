@@ -958,8 +958,15 @@ dyntype_dump_value(dyn_ctx_t ctx, dyn_value_t obj)
     size_t len;
 
     str = JS_ToCStringLen(ctx->js_ctx, &len, *v);
-    if (str)
+    if (str) {
+        if (JS_IsArray(ctx->js_ctx, *v)) {
+            fwrite("[", 1, 1, stdout);
+        }
         fwrite(str, 1, len, stdout);
+        if (JS_IsArray(ctx->js_ctx, *v)) {
+            fwrite("]", 1, 1, stdout);
+        }
+    }
     JS_FreeCString(ctx->js_ctx, str);
 }
 
