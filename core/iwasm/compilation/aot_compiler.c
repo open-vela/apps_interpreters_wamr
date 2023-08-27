@@ -234,8 +234,7 @@ aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
                 else {
                     frame_ip--;
                     read_leb_uint32(frame_ip, frame_ip_end, type_index);
-                    func_type =
-                        (AOTFuncType *)comp_ctx->comp_data->types[type_index];
+                    func_type = comp_ctx->comp_data->func_types[type_index];
                     param_count = func_type->param_count;
                     param_types = func_type->types;
                     result_count = func_type->result_count;
@@ -254,8 +253,7 @@ aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
             case EXT_OP_IF:
             {
                 read_leb_uint32(frame_ip, frame_ip_end, type_index);
-                func_type =
-                    (AOTFuncType *)comp_ctx->comp_data->types[type_index];
+                func_type = comp_ctx->comp_data->func_types[type_index];
                 param_count = func_type->param_count;
                 param_types = func_type->types;
                 result_count = func_type->result_count;
@@ -2726,6 +2724,33 @@ aot_generate_tempfile_name(const char *prefix, const char *extension,
     /* close and remove temp file */
     close(fd);
     unlink(buffer);
+
+    /* Check if buffer length is enough */
+    /* name_len + '.' + extension + '\0' */
+    if (name_len + 1 + strlen(extension) + 1 > len) {
+        aot_set_last_error("temp file name too long.");
+        return NULL;
+    }
+
+    snprintf(buffer + name_len, len - name_len, ".%s", extension);
+    return buffer;
+}
+#else
+
+errno_t
+_mktemp_s(char *nameTemplate, size_t sizeInChars);
+
+char *
+aot_generate_tempfile_name(const char *prefix, const char *extension,
+                           char *buffer, uint32 len)
+{
+    int name_len;
+
+    name_len = snprintf(buffer, len, "%s-XXXXXX", prefix);
+
+    if (_mktemp_s(buffer, name_len + 1) != 0) {
+        return NULL;
+    }
 
     /* Check if buffer length is enough */
     /* name_len + '.' + extension + '\0' */
