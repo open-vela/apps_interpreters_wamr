@@ -68,7 +68,6 @@ typedef enum WASMExceptionID {
     EXCE_OPERAND_STACK_OVERFLOW,
     EXCE_FAILED_TO_COMPILE_FAST_JIT_FUNC,
     EXCE_ALREADY_THROWN,
-    EXCE_NULL_GC_REF,
     EXCE_NUM,
 } WASMExceptionID;
 
@@ -232,19 +231,8 @@ typedef struct CApiFuncImport {
     void *env_arg;
 } CApiFuncImport;
 
-/* The common part of WASMModuleInstanceExtra and AOTModuleInstanceExtra */
-typedef struct WASMModuleInstanceExtraCommon {
-    CApiFuncImport *c_api_func_imports;
-#if WASM_CONFIGUABLE_BOUNDS_CHECKS != 0
-    /* Disable bounds checks or not */
-    bool disable_bounds_checks;
-#endif
-} WASMModuleInstanceExtraCommon;
-
 /* Extra info of WASM module instance for interpreter/jit mode */
 typedef struct WASMModuleInstanceExtra {
-    WASMModuleInstanceExtraCommon common;
-
     WASMGlobalInstance *globals;
     WASMFunctionInstance *functions;
 
@@ -256,6 +244,7 @@ typedef struct WASMModuleInstanceExtra {
     WASMFunctionInstance *free_function;
     WASMFunctionInstance *retain_function;
 
+    CApiFuncImport *c_api_func_imports;
     RunningMode running_mode;
 
 #if WASM_ENABLE_MULTI_MODULE != 0
@@ -280,6 +269,10 @@ typedef struct WASMModuleInstanceExtra {
     || (WASM_ENABLE_FAST_JIT != 0 && WASM_ENABLE_JIT != 0 \
         && WASM_ENABLE_LAZY_JIT != 0)
     WASMModuleInstance *next;
+#endif
+#if WASM_CONFIGUABLE_BOUNDS_CHECKS != 0
+    /* Disable bounds checks or not */
+    bool disable_bounds_checks;
 #endif
 } WASMModuleInstanceExtra;
 
@@ -582,7 +575,6 @@ wasm_create_func_obj(WASMModuleInstance *module_inst, uint32 func_idx,
 
 bool
 wasm_traverse_gc_rootset(WASMExecEnv *exec_env, void *heap);
-
 #endif
 
 static inline WASMTableInstance *
@@ -699,13 +691,6 @@ llvm_jit_alloc_frame(WASMExecEnv *exec_env, uint32 func_index);
 
 void
 llvm_jit_free_frame(WASMExecEnv *exec_env);
-#endif
-
-#if WASM_ENABLE_GC != 0
-void *
-llvm_jit_create_func_obj(WASMModuleInstance *module_inst, uint32 func_idx,
-                         bool throw_exce, char *error_buf,
-                         uint32 error_buf_size);
 #endif
 #endif /* end of WASM_ENABLE_JIT != 0 || WASM_ENABLE_WAMR_COMPILER != 0 */
 

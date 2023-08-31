@@ -42,8 +42,6 @@ wasm_type_to_llvm_type(const AOTLLVMTypes *llvm_types, uint8 wasm_type)
             return llvm_types->i64x2_vec_type;
         case VALUE_TYPE_VOID:
             return llvm_types->void_type;
-        case VALUE_TYPE_GC_REF:
-            return llvm_types->gc_ref_type;
         default:
             break;
     }
@@ -148,13 +146,6 @@ aot_target_precheck_can_use_musttail(const AOTCompContext *comp_ctx)
          */
         return false;
     }
-    if (!strcmp(comp_ctx->target_arch, "mips")) {
-        /*
-         * cf.
-         * https://github.com/bytecodealliance/wasm-micro-runtime/issues/2412
-         */
-        return false;
-    }
     /*
      * x86-64/i386: true
      *
@@ -246,10 +237,9 @@ get_inst_extra_offset(AOTCompContext *comp_ctx)
     const AOTCompData *comp_data = comp_ctx->comp_data;
     uint32 table_count = comp_data->import_table_count + comp_data->table_count;
     uint64 offset = get_tbl_inst_offset(comp_ctx, NULL, table_count);
-    uint32 offset_32 = (uint32)offset;
-    bh_assert(offset <= UINT32_MAX);
-    offset_32 = align_uint((uint32)offset_32, 8);
-    return offset_32;
+    bh_assert(offset <= UINT_MAX);
+    offset = align_uint(offset, 8);
+    return offset;
 }
 
 /*
@@ -319,8 +309,8 @@ aot_add_precheck_function(AOTCompContext *comp_ctx, LLVMModuleRef module,
         goto fail;
     }
 
-    uint32 param_count = LLVMCountParams(precheck_func);
-    uint32 sz = param_count * (uint32)sizeof(LLVMValueRef);
+    unsigned int param_count = LLVMCountParams(precheck_func);
+    uint64 sz = param_count * sizeof(LLVMValueRef);
     params = wasm_runtime_malloc(sz);
     if (params == NULL) {
         goto fail;
@@ -636,8 +626,8 @@ aot_add_llvm_func(AOTCompContext *comp_ctx, LLVMModuleRef module,
     if (comp_ctx->is_indirect_mode) {
         /* avoid LUT relocations ("switch-table") */
         LLVMAttributeRef attr_no_jump_tables = LLVMCreateStringAttribute(
-            comp_ctx->context, "no-jump-tables",
-            (uint32)strlen("no-jump-tables"), "true", (uint32)strlen("true"));
+            comp_ctx->context, "no-jump-tables", strlen("no-jump-tables"),
+            "true", strlen("true"));
         LLVMAddAttributeAtIndex(func, LLVMAttributeFunctionIndex,
                                 attr_no_jump_tables);
     }
@@ -1754,9 +1744,6 @@ aot_set_llvm_basic_types(AOTLLVMTypes *basic_types, LLVMContextRef context,
         basic_types->intptr_ptr_type = basic_types->int64_ptr_type;
     }
 
-    basic_types->gc_ref_type = LLVMPointerType(basic_types->void_type, 0);
-    basic_types->gc_ref_ptr_type = LLVMPointerType(basic_types->gc_ref_type, 0);
-
     return (basic_types->int8_ptr_type && basic_types->int8_pptr_type
             && basic_types->int16_ptr_type && basic_types->int32_ptr_type
             && basic_types->int64_ptr_type && basic_types->intptr_type
@@ -1766,8 +1753,7 @@ aot_set_llvm_basic_types(AOTLLVMTypes *basic_types, LLVMContextRef context,
             && basic_types->i64x2_vec_type && basic_types->f32x4_vec_type
             && basic_types->f64x2_vec_type && basic_types->i1x2_vec_type
             && basic_types->meta_data_type && basic_types->funcref_type
-            && basic_types->externref_type && basic_types->gc_ref_type
-            && basic_types->gc_ref_ptr_type)
+            && basic_types->externref_type)
                ? true
                : false;
 }
@@ -1856,13 +1842,6 @@ aot_create_llvm_consts(AOTLLVMConsts *consts, AOTCompContext *comp_ctx)
     CREATE_VEC_ZERO_MASK(4)
     CREATE_VEC_ZERO_MASK(2)
 #undef CREATE_VEC_ZERO_MASK
-
-    if (!(consts->gc_ref_null =
-              LLVMConstNull(comp_ctx->basic_types.gc_ref_type)))
-        return false;
-    if (!(consts->i8_ptr_null =
-              LLVMConstNull(comp_ctx->basic_types.int8_ptr_type)))
-        return false;
 
     return true;
 }
@@ -2115,7 +2094,7 @@ jit_stack_size_callback(void *user_data, const char *name, size_t namelen,
         return;
     }
     /* ensure NUL termination */
-    bh_memcpy_s(buf, (uint32)sizeof(buf), name, (uint32)namelen);
+    bh_memcpy_s(buf, sizeof(buf), name, namelen);
     buf[namelen] = 0;
 
     ret = sscanf(buf, AOT_FUNC_INTERNAL_PREFIX "%" SCNu32, &func_idx);
@@ -2136,7 +2115,7 @@ jit_stack_size_callback(void *user_data, const char *name, size_t namelen,
 
     /* Note: -1 == AOT_NEG_ONE from aot_create_stack_sizes */
     bh_assert(comp_ctx->jit_stack_sizes[func_idx] == (uint32)-1);
-    comp_ctx->jit_stack_sizes[func_idx] = (uint32)stack_size + call_size;
+    comp_ctx->jit_stack_sizes[func_idx] = stack_size + call_size;
 }
 
 static bool
@@ -2779,16 +2758,6 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
                   LLVMRelocStatic, code_model, false,
                   comp_ctx->stack_usage_file))) {
             aot_set_last_error("create LLVM target machine failed.");
-            goto fail;
-        }
-
-        /* If only to create target machine for querying information, early stop
-         */
-        if ((arch && !strcmp(arch, "help")) || (abi && !strcmp(abi, "help"))
-            || (cpu && !strcmp(cpu, "help"))
-            || (features && !strcmp(features, "+help"))) {
-            LOG_DEBUG(
-                "create LLVM target machine only for printing help info.");
             goto fail;
         }
     }
