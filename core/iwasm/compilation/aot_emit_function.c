@@ -8,9 +8,6 @@
 #include "aot_emit_control.h"
 #include "aot_emit_table.h"
 #include "../aot/aot_runtime.h"
-#if WASM_ENABLE_GC != 0
-#include "aot_emit_gc.h"
-#endif
 
 #define ADD_BASIC_BLOCK(block, name)                                          \
     do {                                                                      \
@@ -20,17 +17,6 @@
             goto fail;                                                        \
         }                                                                     \
     } while (0)
-
-static bool
-is_win_platform(AOTCompContext *comp_ctx)
-{
-    char *triple = LLVMGetTargetMachineTriple(comp_ctx->target_machine);
-
-    bh_assert(triple);
-    if (strstr(triple, "win32") || strstr(triple, "win"))
-        return true;
-    return false;
-}
 
 static bool
 create_func_return_block(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx)
@@ -472,7 +458,7 @@ check_app_addr_and_convert(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
     }
 
     /* Check whether exception was thrown when executing the function */
-    if ((comp_ctx->enable_bound_check || is_win_platform(comp_ctx))
+    if (comp_ctx->enable_bound_check
         && !check_call_return(comp_ctx, func_ctx, res)) {
         return false;
     }
@@ -710,7 +696,7 @@ aot_compile_op_call(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
                 goto fail;
             /* Check whether there was exception thrown when executing
                the function */
-            if ((comp_ctx->enable_bound_check || is_win_platform(comp_ctx))
+            if (comp_ctx->enable_bound_check
                 && !check_call_return(comp_ctx, func_ctx, res))
                 goto fail;
         }
@@ -863,8 +849,7 @@ aot_compile_op_call(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
 
         /* Check whether there was exception thrown when executing
            the function */
-        if (!tail_call
-            && (comp_ctx->enable_bound_check || is_win_platform(comp_ctx))
+        if (!tail_call && comp_ctx->enable_bound_check
             && !check_exception_thrown(comp_ctx, func_ctx))
             goto fail;
     }
@@ -1072,7 +1057,7 @@ aot_compile_op_call_indirect(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
     AOTFuncType *func_type;
     LLVMValueRef tbl_idx_value, elem_idx, table_elem, func_idx;
     LLVMValueRef ftype_idx_ptr, ftype_idx, ftype_idx_const;
-    LLVMValueRef cmp_func_obj, cmp_elem_idx, cmp_func_idx, cmp_ftype_idx;
+    LLVMValueRef cmp_elem_idx, cmp_func_idx, cmp_ftype_idx;
     LLVMValueRef func, func_ptr, table_size_const;
     LLVMValueRef ext_ret_offset, ext_ret_ptr, ext_ret, res;
     LLVMValueRef *param_values = NULL, *value_rets = NULL;
@@ -1080,8 +1065,7 @@ aot_compile_op_call_indirect(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
     LLVMTypeRef *param_types = NULL, ret_type;
     LLVMTypeRef llvm_func_type, llvm_func_ptr_type;
     LLVMTypeRef ext_ret_ptr_type;
-    LLVMBasicBlockRef check_func_obj_succ, check_elem_idx_succ,
-        check_ftype_idx_succ;
+    LLVMBasicBlockRef check_elem_idx_succ, check_ftype_idx_succ;
     LLVMBasicBlockRef check_func_idx_succ, block_return, block_curr;
     LLVMBasicBlockRef block_call_import, block_call_non_import;
     LLVMValueRef offset;
@@ -1180,129 +1164,53 @@ aot_compile_op_call_indirect(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
         goto fail;
     }
 
+    if (!(table_elem = LLVMBuildBitCast(comp_ctx->builder, table_elem,
+                                        INTPTR_PTR_TYPE, "table_elem_ptr"))) {
+        HANDLE_FAILURE("LLVMBuildBitCast");
+        goto fail;
+    }
+
     /* Load function index */
-    if (comp_ctx->enable_gc) {
-        /* table elem is func_obj when gc is enabled */
-        if (!(table_elem =
-                  LLVMBuildBitCast(comp_ctx->builder, table_elem,
-                                   GC_REF_PTR_TYPE, "table_elem_ptr"))) {
-            HANDLE_FAILURE("LLVMBuildBitCast");
-            goto fail;
-        }
-
-        if (!(table_elem = LLVMBuildInBoundsGEP2(comp_ctx->builder, GC_REF_TYPE,
-                                                 table_elem, &elem_idx, 1,
-                                                 "table_elem"))) {
-            HANDLE_FAILURE("LLVMBuildNUWAdd");
-            goto fail;
-        }
-
-        if (!(table_elem = LLVMBuildLoad2(comp_ctx->builder, GC_REF_TYPE,
-                                          table_elem, "func_idx"))) {
-            aot_set_last_error("llvm build load failed.");
-            goto fail;
-        }
-
-        /* Check if func object is NULL */
-        if (!(cmp_func_obj = LLVMBuildIsNull(comp_ctx->builder, table_elem,
-                                             "cmp_func_obj"))) {
-            aot_set_last_error("llvm build isnull failed.");
-            goto fail;
-        }
-
-        /* Throw exception if func object is NULL */
-        if (!(check_func_obj_succ = LLVMAppendBasicBlockInContext(
-                  comp_ctx->context, func_ctx->func, "check_func_obj_succ"))) {
-            aot_set_last_error("llvm add basic block failed.");
-            goto fail;
-        }
-
-        LLVMMoveBasicBlockAfter(check_func_obj_succ,
-                                LLVMGetInsertBlock(comp_ctx->builder));
-
-        if (!(aot_emit_exception(comp_ctx, func_ctx, EXCE_UNINITIALIZED_ELEMENT,
-                                 true, cmp_func_obj, check_func_obj_succ)))
-            goto fail;
-
-        /* Get the func idx bound of the WASMFuncObject, the offset may be
-         * different in 32-bit runtime and 64-bit runtime since WASMObjectHeader
-         * is uintptr_t. Use comp_ctx->pointer_size as the
-         * offsetof(WASMFuncObject, func_idx_bound)
-         */
-        if (!(offset = I32_CONST(comp_ctx->pointer_size))) {
-            HANDLE_FAILURE("LLVMConstInt");
-            goto fail;
-        }
-
-        if (!(func_idx = LLVMBuildInBoundsGEP2(comp_ctx->builder, INT8_TYPE,
-                                               table_elem, &offset, 1,
-                                               "func_idx_bound_i8p"))) {
-            HANDLE_FAILURE("LLVMBuildGEP");
-            goto fail;
-        }
-
-        if (!(func_idx =
-                  LLVMBuildBitCast(comp_ctx->builder, func_idx, INT32_PTR_TYPE,
-                                   "func_idx_bound_i32p"))) {
-            HANDLE_FAILURE("LLVMBuildBitCast");
-            goto fail;
-        }
-
-        if (!(func_idx = LLVMBuildLoad2(comp_ctx->builder, I32_TYPE, func_idx,
-                                        "func_idx_bound"))) {
-            HANDLE_FAILURE("LLVMBuildLoad");
-            goto fail;
-        }
+    if (!(table_elem =
+              LLVMBuildInBoundsGEP2(comp_ctx->builder, INTPTR_TYPE, table_elem,
+                                    &elem_idx, 1, "table_elem"))) {
+        HANDLE_FAILURE("LLVMBuildNUWAdd");
+        goto fail;
     }
-    else {
-        if (!(table_elem =
-                  LLVMBuildBitCast(comp_ctx->builder, table_elem,
-                                   INTPTR_PTR_TYPE, "table_elem_ptr"))) {
-            HANDLE_FAILURE("LLVMBuildBitCast");
-            goto fail;
-        }
 
-        if (!(table_elem = LLVMBuildInBoundsGEP2(comp_ctx->builder, INTPTR_TYPE,
-                                                 table_elem, &elem_idx, 1,
-                                                 "table_elem"))) {
-            HANDLE_FAILURE("LLVMBuildNUWAdd");
-            goto fail;
-        }
-
-        if (!(func_idx = LLVMBuildLoad2(comp_ctx->builder, INTPTR_TYPE,
-                                        table_elem, "func_idx"))) {
-            aot_set_last_error("llvm build load failed.");
-            goto fail;
-        }
-
-        if (!(func_idx = LLVMBuildIntCast2(comp_ctx->builder, func_idx,
-                                           I32_TYPE, true, "func_idx_i32"))) {
-            aot_set_last_error("llvm build int cast failed.");
-            goto fail;
-        }
-
-        /* Check if func_idx == -1 */
-        if (!(cmp_func_idx =
-                  LLVMBuildICmp(comp_ctx->builder, LLVMIntEQ, func_idx,
-                                I32_NEG_ONE, "cmp_func_idx"))) {
-            aot_set_last_error("llvm build icmp failed.");
-            goto fail;
-        }
-
-        /* Throw exception if func_idx == -1 */
-        if (!(check_func_idx_succ = LLVMAppendBasicBlockInContext(
-                  comp_ctx->context, func_ctx->func, "check_func_idx_succ"))) {
-            aot_set_last_error("llvm add basic block failed.");
-            goto fail;
-        }
-
-        LLVMMoveBasicBlockAfter(check_func_idx_succ,
-                                LLVMGetInsertBlock(comp_ctx->builder));
-
-        if (!(aot_emit_exception(comp_ctx, func_ctx, EXCE_UNINITIALIZED_ELEMENT,
-                                 true, cmp_func_idx, check_func_idx_succ)))
-            goto fail;
+    if (!(func_idx = LLVMBuildLoad2(comp_ctx->builder, INTPTR_TYPE, table_elem,
+                                    "func_idx"))) {
+        aot_set_last_error("llvm build load failed.");
+        goto fail;
     }
+
+    if (!(func_idx = LLVMBuildIntCast2(comp_ctx->builder, func_idx, I32_TYPE,
+                                       true, "func_idx_i32"))) {
+        aot_set_last_error("llvm build int cast failed.");
+        goto fail;
+    }
+
+    /* Check if func_idx == -1 */
+    if (!(cmp_func_idx = LLVMBuildICmp(comp_ctx->builder, LLVMIntEQ, func_idx,
+                                       I32_NEG_ONE, "cmp_func_idx"))) {
+        aot_set_last_error("llvm build icmp failed.");
+        goto fail;
+    }
+
+    /* Throw exception if func_idx == -1 */
+    if (!(check_func_idx_succ = LLVMAppendBasicBlockInContext(
+              comp_ctx->context, func_ctx->func, "check_func_idx_succ"))) {
+        aot_set_last_error("llvm add basic block failed.");
+        goto fail;
+    }
+
+    LLVMMoveBasicBlockAfter(check_func_idx_succ,
+                            LLVMGetInsertBlock(comp_ctx->builder));
+
+    if (!(aot_emit_exception(comp_ctx, func_ctx, EXCE_UNINITIALIZED_ELEMENT,
+                             true, cmp_func_idx, check_func_idx_succ)))
+        goto fail;
+
     /* Load function type index */
     if (!(ftype_idx_ptr = LLVMBuildInBoundsGEP2(
               comp_ctx->builder, I32_TYPE, func_ctx->func_type_indexes,
@@ -1529,7 +1437,7 @@ aot_compile_op_call_indirect(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
         goto fail;
 
     /* Check whether exception was thrown when executing the function */
-    if ((comp_ctx->enable_bound_check || is_win_platform(comp_ctx))
+    if (comp_ctx->enable_bound_check
         && !check_call_return(comp_ctx, func_ctx, res))
         goto fail;
 
@@ -1581,7 +1489,7 @@ aot_compile_op_call_indirect(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
     }
 
     /* Check whether exception was thrown when executing the function */
-    if ((comp_ctx->enable_bound_check || is_win_platform(comp_ctx))
+    if (comp_ctx->enable_bound_check
         && !check_exception_thrown(comp_ctx, func_ctx))
         goto fail;
 
@@ -1649,10 +1557,7 @@ fail:
 bool
 aot_compile_op_ref_null(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx)
 {
-    if (comp_ctx->enable_gc)
-        PUSH_REF(GC_REF_NULL);
-    else
-        PUSH_I32(REF_NULL);
+    PUSH_I32(REF_NULL);
 
     return true;
 fail:
@@ -1662,24 +1567,14 @@ fail:
 bool
 aot_compile_op_ref_is_null(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx)
 {
-    LLVMValueRef lhs = NULL, res;
+    LLVMValueRef lhs, res;
 
-    if (comp_ctx->enable_gc) {
-        POP_REF(lhs);
+    POP_I32(lhs);
 
-        if (!(res = LLVMBuildIsNull(comp_ctx->builder, lhs, "lhs is null"))) {
-            HANDLE_FAILURE("LLVMBuildIsNull");
-            goto fail;
-        }
-    }
-    else {
-        POP_I32(lhs);
-
-        if (!(res = LLVMBuildICmp(comp_ctx->builder, LLVMIntEQ, lhs, REF_NULL,
-                                  "cmp_w_null"))) {
-            HANDLE_FAILURE("LLVMBuildICmp");
-            goto fail;
-        }
+    if (!(res = LLVMBuildICmp(comp_ctx->builder, LLVMIntEQ, lhs, REF_NULL,
+                              "cmp_w_null"))) {
+        HANDLE_FAILURE("LLVMBuildICmp");
+        goto fail;
     }
 
     if (!(res = LLVMBuildZExt(comp_ctx->builder, res, I32_TYPE, "r_i"))) {
@@ -1699,25 +1594,13 @@ aot_compile_op_ref_func(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
                         uint32 func_idx)
 {
     LLVMValueRef ref_idx;
+
     if (!(ref_idx = I32_CONST(func_idx))) {
         HANDLE_FAILURE("LLVMConstInt");
         goto fail;
     }
-#if WASM_ENABLE_GC != 0
-    LLVMValueRef gc_obj;
-    if (comp_ctx->enable_gc) {
-        if (!aot_call_aot_create_func_obj(comp_ctx, func_ctx, ref_idx,
-                                          &gc_obj)) {
-            goto fail;
-        }
 
-        PUSH_REF(gc_obj);
-    }
-    else
-#endif
-    {
-        PUSH_I32(ref_idx);
-    }
+    PUSH_I32(ref_idx);
 
     return true;
 fail:

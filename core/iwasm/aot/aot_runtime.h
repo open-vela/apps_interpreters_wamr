@@ -106,8 +106,36 @@ typedef struct AOTFunctionInstance {
 
 typedef struct AOTModuleInstanceExtra {
     DefPointer(const uint32 *, stack_sizes);
-    WASMModuleInstanceExtraCommon common;
+    CApiFuncImport *c_api_func_imports;
+#if WASM_CONFIGUABLE_BOUNDS_CHECKS != 0
+    /* Disable bounds checks or not */
+    bool disable_bounds_checks;
+#endif
 } AOTModuleInstanceExtra;
+
+#if defined(OS_ENABLE_HW_BOUND_CHECK) && defined(BH_PLATFORM_WINDOWS)
+/* clang-format off */
+typedef struct AOTUnwindInfo {
+    uint8 Version       : 3;
+    uint8 Flags         : 5;
+    uint8 SizeOfProlog;
+    uint8 CountOfCodes;
+    uint8 FrameRegister : 4;
+    uint8 FrameOffset   : 4;
+    struct {
+        struct {
+            uint8 CodeOffset;
+            uint8 UnwindOp : 4;
+            uint8 OpInfo   : 4;
+        };
+        uint16 FrameOffset;
+    } UnwindCode[1];
+} AOTUnwindInfo;
+/* clang-format on */
+
+/* size of mov instruction and jmp instruction */
+#define PLT_ITEM_SIZE 12
+#endif
 
 #if defined(BUILD_TARGET_X86_64) || defined(BUILD_TARGET_AMD_64)
 typedef struct GOTItem {
@@ -204,6 +232,14 @@ typedef struct AOTModule {
     uint32 float_plt_count;
 #endif
 
+#if defined(OS_ENABLE_HW_BOUND_CHECK) && defined(BH_PLATFORM_WINDOWS)
+    /* dynamic function table to be added by RtlAddFunctionTable(),
+       used to unwind the call stack and register exception handler
+       for AOT functions */
+    RUNTIME_FUNCTION *rtl_func_table;
+    bool rtl_func_table_registered;
+#endif
+
 #if defined(BUILD_TARGET_X86_64) || defined(BUILD_TARGET_AMD_64)
     uint32 got_item_count;
     GOTItemList got_item_list;
@@ -245,12 +281,6 @@ typedef struct AOTModule {
 #if WASM_ENABLE_LIBC_WASI != 0
     WASIArguments wasi_args;
     bool import_wasi_api;
-#endif
-#if WASM_ENABLE_GC != 0
-    /* Ref types hash set */
-    HashMap *ref_type_set;
-    struct WASMRttType **rtt_types;
-    korp_mutex rtt_type_lock;
 #endif
 #if WASM_ENABLE_DEBUG_AOT != 0
     void *elf_hdr;
@@ -573,7 +603,7 @@ void
 aot_get_module_inst_mem_consumption(const AOTModuleInstance *module_inst,
                                     WASMModuleInstMemConsumption *mem_conspn);
 
-#if WASM_ENABLE_REF_TYPES != 0 || WASM_ENABLE_GC != 0
+#if WASM_ENABLE_REF_TYPES != 0
 void
 aot_drop_table_seg(AOTModuleInstance *module_inst, uint32 tbl_seg_idx);
 
@@ -656,13 +686,6 @@ aot_exchange_uint32(uint8 *p_data);
 void
 aot_exchange_uint64(uint8 *p_data);
 #endif /* end of WASM_ENABLE_STATIC_PGO != 0 */
-
-#if WASM_ENABLE_GC != 0
-void *
-aot_create_func_obj(AOTModuleInstance *module_inst, uint32 func_idx,
-                    bool throw_exce, char *error_buf, uint32 error_buf_size);
-
-#endif /* end of WASM_ENABLE_GC != 0 */
 
 #ifdef __cplusplus
 } /* end of extern "C" */

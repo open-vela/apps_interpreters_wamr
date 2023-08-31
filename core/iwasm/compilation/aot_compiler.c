@@ -361,10 +361,13 @@ aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
 
                 read_leb_uint32(frame_ip, frame_ip_end, type_idx);
 
-                if (comp_ctx->enable_gc || comp_ctx->enable_ref_types) {
+#if WASM_ENABLE_REF_TYPES != 0
+                if (comp_ctx->enable_ref_types) {
                     read_leb_uint32(frame_ip, frame_ip_end, tbl_idx);
                 }
-                else {
+                else
+#endif
+                {
                     frame_ip++;
                     tbl_idx = 0;
                 }
@@ -398,10 +401,13 @@ aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
                 }
 
                 read_leb_uint32(frame_ip, frame_ip_end, type_idx);
-                if (comp_ctx->enable_gc || comp_ctx->enable_ref_types) {
+#if WASM_ENABLE_REF_TYPES != 0
+                if (comp_ctx->enable_ref_types) {
                     read_leb_uint32(frame_ip, frame_ip_end, tbl_idx);
                 }
-                else {
+                else
+#endif
+                {
                     frame_ip++;
                     tbl_idx = 0;
                 }
@@ -435,13 +441,13 @@ aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
                     return false;
                 break;
 
-#if WASM_ENABLE_REF_TYPES != 0 || WASM_ENABLE_GC != 0
+#if WASM_ENABLE_REF_TYPES != 0
             case WASM_OP_SELECT_T:
             {
                 uint32 vec_len;
 
-                if (!comp_ctx->enable_ref_types && !comp_ctx->enable_gc) {
-                    goto unsupport_gc_and_ref_types;
+                if (!comp_ctx->enable_ref_types) {
+                    goto unsupport_ref_types;
                 }
 
                 read_leb_uint32(frame_ip, frame_ip_end, vec_len);
@@ -449,25 +455,18 @@ aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
                 (void)vec_len;
 
                 type_idx = *frame_ip++;
-                if (!aot_compile_op_select(
-                        comp_ctx, func_ctx,
-                        (type_idx != VALUE_TYPE_I64)
-                            && (type_idx != VALUE_TYPE_F64)
-#if WASM_ENABLE_GC != 0 && UINTPTR_MAX == UINT64_MAX
-                            && !(comp_ctx->enable_gc
-                                 && wasm_is_type_reftype(type_idx))
-#endif
-                            ))
+                if (!aot_compile_op_select(comp_ctx, func_ctx,
+                                           (type_idx != VALUE_TYPE_I64)
+                                               && (type_idx != VALUE_TYPE_F64)))
                     return false;
-
                 break;
             }
             case WASM_OP_TABLE_GET:
             {
                 uint32 tbl_idx;
 
-                if (!comp_ctx->enable_ref_types && !comp_ctx->enable_gc) {
-                    goto unsupport_gc_and_ref_types;
+                if (!comp_ctx->enable_ref_types) {
+                    goto unsupport_ref_types;
                 }
 
                 read_leb_uint32(frame_ip, frame_ip_end, tbl_idx);
@@ -479,8 +478,8 @@ aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
             {
                 uint32 tbl_idx;
 
-                if (!comp_ctx->enable_ref_types && !comp_ctx->enable_gc) {
-                    goto unsupport_gc_and_ref_types;
+                if (!comp_ctx->enable_ref_types) {
+                    goto unsupport_ref_types;
                 }
 
                 read_leb_uint32(frame_ip, frame_ip_end, tbl_idx);
@@ -492,8 +491,8 @@ aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
             {
                 uint32 type;
 
-                if (!comp_ctx->enable_ref_types && !comp_ctx->enable_gc) {
-                    goto unsupport_gc_and_ref_types;
+                if (!comp_ctx->enable_ref_types) {
+                    goto unsupport_ref_types;
                 }
 
                 read_leb_uint32(frame_ip, frame_ip_end, type);
@@ -506,8 +505,8 @@ aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
             }
             case WASM_OP_REF_IS_NULL:
             {
-                if (!comp_ctx->enable_ref_types && !comp_ctx->enable_gc) {
-                    goto unsupport_gc_and_ref_types;
+                if (!comp_ctx->enable_ref_types) {
+                    goto unsupport_ref_types;
                 }
 
                 if (!aot_compile_op_ref_is_null(comp_ctx, func_ctx))
@@ -516,8 +515,8 @@ aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
             }
             case WASM_OP_REF_FUNC:
             {
-                if (!comp_ctx->enable_ref_types && !comp_ctx->enable_gc) {
-                    goto unsupport_gc_and_ref_types;
+                if (!comp_ctx->enable_ref_types) {
+                    goto unsupport_ref_types;
                 }
 
                 read_leb_uint32(frame_ip, frame_ip_end, func_idx);
@@ -1138,7 +1137,7 @@ aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
                         break;
                     }
 #endif /* WASM_ENABLE_BULK_MEMORY */
-#if WASM_ENABLE_REF_TYPES != 0 || WASM_ENABLE_GC != 0
+#if WASM_ENABLE_REF_TYPES != 0
                     case WASM_OP_TABLE_INIT:
                     {
                         uint32 tbl_idx, tbl_seg_idx;
@@ -1202,7 +1201,7 @@ aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
                             return false;
                         break;
                     }
-#endif /* WASM_ENABLE_REF_TYPES || WASM_ENABLE_GC */
+#endif /* WASM_ENABLE_REF_TYPES */
                     default:
                         aot_set_last_error("unsupported opcode");
                         return false;
@@ -2590,14 +2589,6 @@ unsupport_ref_types:
     return false;
 #endif
 
-#if WASM_ENABLE_REF_TYPES != 0 || WASM_ENABLE_GC != 0
-unsupport_gc_and_ref_types:
-    aot_set_last_error(
-        "reference type or garbage collection instruction was found, "
-        "try adding --enable-gc or removing --disable-ref-types option");
-    return false;
-#endif
-
 #if WASM_ENABLE_BULK_MEMORY != 0
 unsupport_bulk_memory:
     aot_set_last_error("bulk memory instruction was found, "
@@ -2735,33 +2726,6 @@ aot_generate_tempfile_name(const char *prefix, const char *extension,
     /* close and remove temp file */
     close(fd);
     unlink(buffer);
-
-    /* Check if buffer length is enough */
-    /* name_len + '.' + extension + '\0' */
-    if (name_len + 1 + strlen(extension) + 1 > len) {
-        aot_set_last_error("temp file name too long.");
-        return NULL;
-    }
-
-    snprintf(buffer + name_len, len - name_len, ".%s", extension);
-    return buffer;
-}
-#else
-
-errno_t
-_mktemp_s(char *nameTemplate, size_t sizeInChars);
-
-char *
-aot_generate_tempfile_name(const char *prefix, const char *extension,
-                           char *buffer, uint32 len)
-{
-    int name_len;
-
-    name_len = snprintf(buffer, len, "%s-XXXXXX", prefix);
-
-    if (_mktemp_s(buffer, name_len + 1) != 0) {
-        return NULL;
-    }
 
     /* Check if buffer length is enough */
     /* name_len + '.' + extension + '\0' */
