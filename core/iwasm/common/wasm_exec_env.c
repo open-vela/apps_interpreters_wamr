@@ -5,9 +5,6 @@
 
 #include "wasm_exec_env.h"
 #include "wasm_runtime_common.h"
-#if WASM_ENABLE_GC != 0
-#include "mem_alloc.h"
-#endif
 #if WASM_ENABLE_INTERP != 0
 #include "../interpreter/wasm_runtime.h"
 #endif
@@ -136,9 +133,6 @@ wasm_exec_env_create(struct WASMModuleInstanceCommon *module_inst,
 #endif
     WASMExecEnv *exec_env =
         wasm_exec_env_create_internal(module_inst, stack_size);
-#if WASM_ENABLE_GC != 0
-    void *gc_heap_handle = NULL;
-#endif
 
     if (!exec_env)
         return NULL;
@@ -150,9 +144,6 @@ wasm_exec_env_create(struct WASMModuleInstanceCommon *module_inst,
         exec_env->aux_stack_bottom.bottom = module->aux_stack_bottom;
         exec_env->aux_stack_boundary.boundary =
             module->aux_stack_bottom - module->aux_stack_size;
-#if WASM_ENABLE_GC != 0
-        gc_heap_handle = ((WASMModuleInstance *)module_inst)->e->gc_heap_handle;
-#endif
     }
 #endif
 #if WASM_ENABLE_AOT != 0
@@ -163,10 +154,6 @@ wasm_exec_env_create(struct WASMModuleInstanceCommon *module_inst,
         exec_env->aux_stack_bottom.bottom = module->aux_stack_bottom;
         exec_env->aux_stack_boundary.boundary =
             module->aux_stack_bottom - module->aux_stack_size;
-#if WASM_ENABLE_GC != 0
-        /*gc_heap_handle = ((AOTModuleInstance
-         * *)module_inst)->e->gc_heap_handle;*/
-#endif
     }
 #endif
 
@@ -176,14 +163,6 @@ wasm_exec_env_create(struct WASMModuleInstanceCommon *module_inst,
         wasm_exec_env_destroy_internal(exec_env);
         return NULL;
     }
-#if WASM_ENABLE_GC != 0
-    mem_allocator_enable_gc_reclaim(gc_heap_handle, cluster);
-#endif
-#else
-#if WASM_ENABLE_GC != 0
-    bh_assert(gc_heap_handle);
-    mem_allocator_enable_gc_reclaim(gc_heap_handle, exec_env);
-#endif
 #endif /* end of WASM_ENABLE_THREAD_MGR */
 
     return exec_env;
