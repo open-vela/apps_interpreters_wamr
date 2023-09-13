@@ -5,14 +5,6 @@ CORE_ROOT := wamr/core
 IWASM_ROOT := wamr/core/iwasm
 SHARED_ROOT := wamr/core/shared
 
-QUICKJS_ROOT := ../quickjs/quickjs
-DYNTYPE_ROOT := wamr/runtime-library/dyntype
-STDLIB_ROOT := wamr/runtime-library/stdlib
-STRUCT_DYN_ROOT := wamr/runtime-library/struct-dyn
-UTILS_ROOT := wamr/runtime-library/utils
-RUNTIMELIB_ROOT := wamr/runtime-library
-LIBQUICKJS_IMPL_DIR := ${DYNTYPE_ROOT}/dyntype_qjs_impl
-
 ifeq ($(CONFIG_ARCH_ARMV6M),y)
 WAMR_BUILD_TARGET := THUMBV6M
 else ifeq ($(CONFIG_ARCH_ARMV7A),y)
@@ -261,8 +253,16 @@ CSRCS += posix.c
 CSRCS += random.c
 CSRCS += str.c
 VPATH += $(IWASM_ROOT)/libraries/libc-wasi/sandboxed-system-primitives/src
+# todo: use Kconfig select instead
+CONFIG_INTERPRETERS_WAMR_MODULE_INSTANCE_CONTEXT = y
 else
 CFLAGS += -DWASM_ENABLE_LIBC_WASI=0
+endif
+
+ifeq ($(CONFIG_INTERPRETERS_WAMR_MODULE_INSTANCE_CONTEXT),y)
+CFLAGS += -DWASM_ENABLE_MODULE_INST_CONTEXT=1
+else
+CFLAGS += -DWASM_ENABLE_MODULE_INST_CONTEXT=0
 endif
 
 ifeq ($(CONFIG_INTERPRETERS_WAMR_MULTI_MODULE),y)
@@ -286,12 +286,6 @@ CSRCS += tid_allocator.c
 VPATH += $(IWASM_ROOT)/libraries/lib-wasi-threads
 else
 CFLAGS += -DWASM_ENABLE_LIB_WASI_THREADS=0
-endif
-
-ifeq ($(CONFIG_INTERPRETERS_WAMR_GC_MANUALLY),y)
-CFLAGS += -DWASM_GC_MANUALLY=1
-else
-CFLAGS += -DWASM_GC_MANUALLY=0
 endif
 
 ifeq ($(CONFIG_INTERPRETERS_WAMR_LIB_PTHREAD),y)
@@ -340,12 +334,6 @@ else
 CFLAGS += -DWASM_ENABLE_REF_TYPES=0
 endif
 
-CFLAGS += -DWASM_ENABLE_GC_BINARYEN=1
-CFLAGS += -DWAMR_BUILD_FAST_INTERP=1
-CFLAGS += -DWASM_ENABLE_GC=1
-CSRCS += gc_type.c gc_object.c gc_common.c
-VPATH += $(IWASM_ROOT)/common/gc
-
 CFLAGS += -Wno-strict-prototypes -Wno-shadow -Wno-unused-variable
 CFLAGS += -Wno-int-conversion -Wno-implicit-function-declaration
 
@@ -359,14 +347,7 @@ CFLAGS += -I${CORE_ROOT} \
           -I${SHARED_ROOT}/utils \
           -I${SHARED_ROOT}/utils/uncommon \
           -I${SHARED_ROOT}/mem-alloc \
-          -I${SHARED_ROOT}/platform/nuttx \
-          -I${IWASM_ROOT}/common/gc \
-          -I${QUICKJS_ROOT} \
-          -I${DYNTYPE_ROOT} \
-          -I${STDLIB_ROOT} \
-          -I${STRUCT_DYN_ROOT} \
-          -I${UTILS_ROOT} \
-          -I${LIBQUICKJS_IMPL_DIR}
+          -I${SHARED_ROOT}/platform/nuttx
 
 ifeq ($(WAMR_BUILD_INTERP), 1)
 CFLAGS += -I$(IWASM_ROOT)/interpreter
@@ -379,7 +360,6 @@ CSRCS += nuttx_platform.c \
          ems_kfc.c \
          ems_alloc.c \
          ems_hmu.c \
-         ems_gc.c \
          bh_assert.c \
          bh_common.c \
          bh_hashmap.c \
@@ -394,17 +374,7 @@ CSRCS += nuttx_platform.c \
          wasm_native.c \
          wasm_exec_env.c \
          wasm_memory.c \
-         wasm_c_api.c \
-         context.c \
-         fallback.c \
-         object.c \
-         lib_dyntype_wrapper.c \
-         lib_array.c \
-         lib_console.c \
-         lib_timer.c \
-         lib_structdyn.c \
-         type_utils.c \
-         wamr_utils.c \
+         wasm_c_api.c
 
 ASRCS += $(INVOKE_NATIVE)
 
@@ -421,15 +391,3 @@ VPATH += $(IWASM_ROOT)/libraries/lib-pthread
 VPATH += $(IWASM_ROOT)/common/arch
 VPATH += $(IWASM_ROOT)/aot
 VPATH += $(IWASM_ROOT)/aot/arch
-VPATH += ${QUICKJS_ROOT}
-VPATH += ${DYNTYPE_ROOT}
-VPATH += ${STDLIB_ROOT}
-VPATH += ${STRUCT_DYN_ROOT}
-VPATH += ${UTILS_ROOT}
-VPATH += ${RUNTIMELIB_ROOT}
-VPATH += ${LIBQUICKJS_IMPL_DIR}
-
-override MAINSRC = main_gc.c
-override PROGNAME  = iwasm
-export MAINSRC
-export PROGNAME
