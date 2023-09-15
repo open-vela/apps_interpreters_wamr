@@ -414,6 +414,10 @@ typedef struct wasm_frame_t {
     uint32 func_index;
     uint32 func_offset;
     const char *func_name_wp;
+
+    uint32 *sp;
+    uint8 *frame_ref;
+    uint32 *lp;
 } WASMCApiFrame;
 
 #ifdef WASM_ENABLE_JIT
@@ -674,10 +678,6 @@ wasm_runtime_get_exception(WASMModuleInstanceCommon *module);
 /* See wasm_export.h for description */
 WASM_RUNTIME_API_EXTERN void
 wasm_runtime_clear_exception(WASMModuleInstanceCommon *module_inst);
-
-/* See wasm_export.h for description */
-WASM_RUNTIME_API_EXTERN void
-wasm_runtime_terminate(WASMModuleInstanceCommon *module);
 
 /* Internal API */
 void
