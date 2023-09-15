@@ -1061,15 +1061,6 @@ set_thread_cancel_flags(WASMExecEnv *exec_env)
     os_mutex_unlock(&exec_env->wait_lock);
 }
 
-static void
-clear_thread_cancel_flags(WASMExecEnv *exec_env)
-{
-    os_mutex_lock(&exec_env->wait_lock);
-    WASM_SUSPEND_FLAGS_FETCH_AND(exec_env->suspend_flags,
-                                 ~WASM_SUSPEND_FLAG_TERMINATE);
-    os_mutex_unlock(&exec_env->wait_lock);
-}
-
 int32
 wasm_cluster_cancel_thread(WASMExecEnv *exec_env)
 {
@@ -1275,21 +1266,18 @@ set_exception_visitor(void *node, void *user_data)
         if (data->exception != NULL) {
             set_thread_cancel_flags(exec_env);
         }
-        else {
-            clear_thread_cancel_flags(exec_env);
-        }
     }
 }
 
 void
-wasm_cluster_set_exception(WASMExecEnv *exec_env, const char *exception)
+wasm_cluster_spread_exception(WASMExecEnv *exec_env, const char *exception)
 {
     const bool has_exception = exception != NULL;
     WASMCluster *cluster = wasm_exec_env_get_cluster(exec_env);
     bh_assert(cluster);
 
     struct spread_exception_data data;
-    data.skip = NULL;
+    data.skip = exec_env;
     data.exception = exception;
 
     os_mutex_lock(&cluster->lock);
