@@ -253,16 +253,8 @@ CSRCS += posix.c
 CSRCS += random.c
 CSRCS += str.c
 VPATH += $(IWASM_ROOT)/libraries/libc-wasi/sandboxed-system-primitives/src
-# todo: use Kconfig select instead
-CONFIG_INTERPRETERS_WAMR_MODULE_INSTANCE_CONTEXT = y
 else
 CFLAGS += -DWASM_ENABLE_LIBC_WASI=0
-endif
-
-ifeq ($(CONFIG_INTERPRETERS_WAMR_MODULE_INSTANCE_CONTEXT),y)
-CFLAGS += -DWASM_ENABLE_MODULE_INST_CONTEXT=1
-else
-CFLAGS += -DWASM_ENABLE_MODULE_INST_CONTEXT=0
 endif
 
 ifeq ($(CONFIG_INTERPRETERS_WAMR_MULTI_MODULE),y)
@@ -286,6 +278,20 @@ CSRCS += tid_allocator.c
 VPATH += $(IWASM_ROOT)/libraries/lib-wasi-threads
 else
 CFLAGS += -DWASM_ENABLE_LIB_WASI_THREADS=0
+endif
+
+ifeq ($(CONFIG_INTERPRETERS_WAMR_GC),y)
+CFLAGS += -DWASM_ENABLE_GC=1
+CSRCS += gc_type.c gc_object.c
+VPATH += $(IWASM_ROOT)/common/gc
+else
+CFLAGS += -DWASM_ENABLE_GC=0
+endif
+
+ifeq ($(CONFIG_INTERPRETERS_WAMR_GC_MANUALLY),y)
+CFLAGS += -DWASM_GC_MANUALLY=1
+else
+CFLAGS += -DWASM_GC_MANUALLY=0
 endif
 
 ifeq ($(CONFIG_INTERPRETERS_WAMR_LIB_PTHREAD),y)
@@ -360,6 +366,7 @@ CSRCS += nuttx_platform.c \
          ems_kfc.c \
          ems_alloc.c \
          ems_hmu.c \
+         ems_gc.c \
          bh_assert.c \
          bh_common.c \
          bh_hashmap.c \
