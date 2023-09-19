@@ -39,12 +39,7 @@ extern const char *aot_stack_sizes_alias_name;
 extern const char *aot_stack_sizes_section_name;
 
 typedef InitializerExpression AOTInitExpr;
-typedef WASMType AOTType;
-typedef WASMFuncType AOTFuncType;
-#if WASM_ENABLE_GC != 0
-typedef WASMStructType AOTStructType;
-typedef WASMArrayType AOTArrayType;
-#endif
+typedef WASMType AOTFuncType;
 typedef WASMExport AOTExport;
 
 #if WASM_ENABLE_DEBUG_AOT != 0
@@ -138,9 +133,6 @@ typedef struct AOTTable {
     uint32 table_init_size;
     uint32 table_max_size;
     bool possible_grow;
-#if WASM_ENABLE_GC != 0
-    WASMRefType *elem_ref_type;
-#endif
 } AOTTable;
 
 /**
@@ -151,9 +143,6 @@ typedef struct AOTTableInitData {
     uint32 mode;
     /* funcref or externref, elemkind will be considered as funcref */
     uint32 elem_type;
-#if WASM_ENABLE_GC != 0
-    WASMRefType *elem_ref_type;
-#endif
     bool is_dropped;
     /* optional, only for active */
     uint32 table_index;
@@ -162,7 +151,7 @@ typedef struct AOTTableInitData {
     /* Function index count */
     uint32 func_index_count;
     /* Function index array */
-    uintptr_t func_indexes[1];
+    uint32 func_indexes[1];
 } AOTTableInitData;
 
 /**
@@ -224,6 +213,7 @@ typedef struct AOTFunc {
     uint8 *local_types;
     uint16 param_cell_num;
     uint16 local_cell_num;
+    uint32 max_stack_cell_num;
     uint32 code_size;
     uint8 *code;
 } AOTFunc;
@@ -262,8 +252,8 @@ typedef struct AOTCompData {
     AOTGlobal *globals;
 
     /* Function types */
-    uint32 type_count;
-    AOTType **types;
+    uint32 func_type_count;
+    AOTFuncType **func_types;
 
     /* Import functions */
     uint32 import_func_count;
@@ -307,7 +297,7 @@ typedef struct AOTNativeSymbol {
 } AOTNativeSymbol;
 
 AOTCompData *
-aot_create_comp_data(WASMModule *module, bool gc_enabled);
+aot_create_comp_data(WASMModule *module);
 
 void
 aot_destroy_comp_data(AOTCompData *comp_data);
