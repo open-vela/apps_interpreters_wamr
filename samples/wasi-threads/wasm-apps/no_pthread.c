@@ -50,11 +50,16 @@ main(int argc, char **argv)
     }
 
     thread_id = __wasi_thread_spawn(&data);
-    ASSERT_VALID_TID(thread_id);
+    if (thread_id < 0) {
+        printf("Failed to create thread: %d\n", thread_id);
+        ret = EXIT_FAILURE;
+        goto final;
+    }
 
     if (__builtin_wasm_memory_atomic_wait32(&data.th_ready, 0, SECOND) == 2) {
         printf("Timeout\n");
-        return EXIT_FAILURE;
+        ret = EXIT_FAILURE;
+        goto final;
     }
 
     printf("Thread completed, new value: %d, thread id: %d\n", data.value,
@@ -62,6 +67,7 @@ main(int argc, char **argv)
 
     assert(thread_id == data.thread_id);
 
+final:
     start_args_deinit(&data.base);
 
     return ret;

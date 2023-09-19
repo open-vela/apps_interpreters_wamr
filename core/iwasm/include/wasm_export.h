@@ -161,6 +161,9 @@ typedef struct RuntimeInitArgs {
     /* Fast JIT code cache size */
     uint32_t fast_jit_code_cache_size;
 
+    /* Default GC heap size */
+    uint32_t gc_heap_size;
+
     /* Default running mode of the runtime */
     RunningMode running_mode;
 
@@ -895,27 +898,6 @@ WASM_RUNTIME_API_EXTERN void
 wasm_runtime_clear_exception(wasm_module_inst_t module_inst);
 
 /**
- * Terminate the WASM module instance.
- *
- * This function causes the module instance fail as if it raised a trap.
- *
- * This is intended to be used in situations like:
- *
- *  - A thread is executing the WASM module instance
- *    (eg. it's in the middle of `wasm_application_execute_main`)
- *
- *  - Another thread has a copy of `wasm_module_inst_t` of
- *    the module instance and wants to terminate it asynchronously.
- *
- * This function is provided only when WAMR is built with threading enabled.
- * (`WASM_ENABLE_THREAD_MGR=1`)
- *
- * @param module_inst the WASM module instance
- */
-WASM_RUNTIME_API_EXTERN void
-wasm_runtime_terminate(wasm_module_inst_t module_inst);
-
-/**
  * Set custom data to WASM module instance.
  * Note:
  *  If WAMR_BUILD_LIB_PTHREAD is enabled, this API
@@ -1459,92 +1441,6 @@ wasm_runtime_is_import_func_linked(const char *module_name,
 WASM_RUNTIME_API_EXTERN bool
 wasm_runtime_is_import_global_linked(const char *module_name,
                                      const char *global_name);
-
-typedef enum {
-    INTERNAL_ERROR,
-    MAX_SIZE_REACHED,
-} enlarge_memory_error_reason_t;
-
-typedef void (*enlarge_memory_error_callback_t)(
-    uint32_t inc_page_count, uint64_t current_memory_size,
-    uint32_t memory_index, enlarge_memory_error_reason_t failure_reason,
-    wasm_module_inst_t instance, wasm_exec_env_t exec_env,
-    void* user_data);
-
-/**
- * Setup callback invoked when memory.grow fails
- */
-WASM_RUNTIME_API_EXTERN void
-wasm_runtime_set_enlarge_mem_error_callback(
-    const enlarge_memory_error_callback_t callback, void *user_data);
-
-/*
- * module instance context APIs
- *   wasm_runtime_create_context_key
- *   wasm_runtime_destroy_context_key
- *   wasm_runtime_set_context
- *   wasm_runtime_set_context_spread
- *   wasm_runtime_get_context
- *
- * This set of APIs is intended to be used by an embedder which provides
- * extra sets of native functions, which need per module instance state
- * and are maintained outside of the WAMR tree.
- *
- * It's modelled after the pthread specific API.
- *
- * wasm_runtime_set_context_spread is similar to
- * wasm_runtime_set_context, except that
- * wasm_runtime_set_context_spread applies the change
- * to all threads in the cluster.
- * It's an undefined behavior if multiple threads in a cluster call
- * wasm_runtime_set_context_spread on the same key
- * simultaneously. It's a caller's resposibility to perform necessary
- * serialization if necessary. For example:
- *
- * if (wasm_runtime_get_context(inst, key) == NULL) {
- *     newctx = alloc_and_init(...);
- *     lock(some_lock);
- *     if (wasm_runtime_get_context(inst, key) == NULL) {
- *         // this thread won the race
- *         wasm_runtime_set_context_spread(inst, key, newctx);
- *         newctx = NULL;
- *     }
- *     unlock(some_lock);
- *     if (newctx != NULL) {
- *         // this thread lost the race, free it
- *         cleanup_and_free(newctx);
- *     }
- * }
- *
- * Note: dynamic key create/destroy while instances are live is not
- * implemented as of writing this.
- * it's caller's resposibility to ensure destorying all module instances
- * before calling wasm_runtime_create_context_key or
- * wasm_runtime_destroy_context_key.
- * otherwise, it's an undefined behavior.
- *
- * Note about threads:
- * - When spawning a thread, the contexts (the pointers given to
- *   wasm_runtime_set_context) are copied from the parent
- *   instance.
- * - The destructor is called only on the main instance.
- */
-
-WASM_RUNTIME_API_EXTERN void *
-wasm_runtime_create_context_key(
-    void (*dtor)(wasm_module_inst_t inst, void *ctx));
-
-WASM_RUNTIME_API_EXTERN void
-wasm_runtime_destroy_context_key(void *key);
-
-WASM_RUNTIME_API_EXTERN void
-wasm_runtime_set_context(wasm_module_inst_t inst, void *key,
-                                         void *ctx);
-WASM_RUNTIME_API_EXTERN void
-wasm_runtime_set_context_spread(wasm_module_inst_t inst, void *key,
-                                         void *ctx);
-WASM_RUNTIME_API_EXTERN void *
-wasm_runtime_get_context(wasm_module_inst_t inst, void *key);
 
 /* clang-format on */
 
