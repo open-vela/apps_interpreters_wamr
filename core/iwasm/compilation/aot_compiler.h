@@ -8,7 +8,6 @@
 
 #include "aot.h"
 #include "aot_llvm.h"
-#include "../interpreter/wasm_interp.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -107,248 +106,6 @@ check_type_compatible(uint8 src_type, uint8 dst_type)
     return false;
 }
 
-/**
- * Operations for AOTCompFrame
- */
-
-/**
- * Get the offset from frame pointer to the n-th local variable slot.
- *
- * @param n the index to the local variable array
- *
- * @return the offset from frame pointer to the local variable slot
- */
-static inline uint32
-offset_of_local(AOTCompContext *comp_ctx, unsigned n)
-{
-    if (!comp_ctx->is_jit_mode)
-        return comp_ctx->pointer_size * 7 + sizeof(uint32) * n;
-    else
-        return offsetof(WASMInterpFrame, lp) + sizeof(uint32) * n;
-}
-
-/**
- * Get the offset from frame pointer to the n-th local variable's
- * reference flag slot.
- *
- * @param n the index to the local variable array
- *
- * @return the offset from frame pointer to the local variable slot
- */
-static inline unsigned
-offset_of_ref(AOTCompContext *comp_ctx, unsigned n)
-{
-    AOTCompFrame *frame = comp_ctx->aot_frame;
-    uint32 all_cell_num = frame->max_local_cell_num + frame->max_stack_cell_num;
-    return offset_of_local(comp_ctx, all_cell_num) + n;
-}
-
-/**
- * Generate instructions to commit computation result to the frame.
- * The general principle is to only commit values that will be used
- * through the frame.
- *
- * @param frame the frame information
- */
-bool
-aot_gen_commit_values(AOTCompFrame *frame);
-
-/**
- * Generate instructions to commit SP and IP pointers to the frame.
- *
- * @param frame the frame information
- */
-bool
-aot_gen_commit_sp_ip(AOTCompFrame *frame, const AOTValueSlot *sp,
-                     const uint8 *ip);
-
-static inline void
-push_32bit(AOTCompFrame *frame, AOTValue *aot_value)
-{
-    frame->sp->value = aot_value->value;
-    frame->sp->type = aot_value->type;
-    frame->sp->dirty = 1;
-    frame->sp++;
-}
-
-static inline void
-push_64bit(AOTCompFrame *frame, AOTValue *aot_value)
-{
-    push_32bit(frame, aot_value);
-    push_32bit(frame, aot_value);
-}
-
-static inline void
-push_i32(AOTCompFrame *frame, AOTValue *aot_value)
-{
-    bh_assert(aot_value->type == VALUE_TYPE_I32
-              || aot_value->type == VALUE_TYPE_I1);
-    push_32bit(frame, aot_value);
-}
-
-static inline void
-push_i64(AOTCompFrame *frame, AOTValue *aot_value)
-{
-    bh_assert(aot_value->type == VALUE_TYPE_I64);
-    push_64bit(frame, aot_value);
-}
-
-static inline void
-push_f32(AOTCompFrame *frame, AOTValue *aot_value)
-{
-    bh_assert(aot_value->type == VALUE_TYPE_F32);
-    push_32bit(frame, aot_value);
-}
-
-static inline void
-push_f64(AOTCompFrame *frame, AOTValue *aot_value)
-{
-    bh_assert(aot_value->type == VALUE_TYPE_F64);
-    push_64bit(frame, aot_value);
-}
-
-static inline void
-push_v128(AOTCompFrame *frame, AOTValue *aot_value)
-{
-    bh_assert(aot_value->type == VALUE_TYPE_V128);
-    push_64bit(frame, aot_value);
-    push_64bit(frame, aot_value);
-}
-
-static inline void
-push_ref(AOTCompFrame *frame, AOTValue *aot_value)
-{
-    bh_assert(frame->comp_ctx->enable_ref_types);
-    push_32bit(frame, aot_value);
-}
-
-static inline void
-pop_i32(AOTCompFrame *frame)
-{
-    bh_assert(frame->sp - frame->lp >= 1);
-    bh_assert((frame->sp - 1)->type == VALUE_TYPE_I32
-              || (frame->sp - 1)->type == VALUE_TYPE_I1);
-    frame->sp--;
-    memset(frame->sp, 0, sizeof(*frame->sp));
-}
-
-static inline void
-pop_i64(AOTCompFrame *frame)
-{
-    bh_assert(frame->sp - frame->lp >= 2);
-    bh_assert((frame->sp - 1)->type == VALUE_TYPE_I64
-              && (frame->sp - 2)->type == VALUE_TYPE_I64);
-    frame->sp -= 2;
-    memset(frame->sp, 0, sizeof(*frame->sp) * 2);
-}
-
-static inline void
-pop_f32(AOTCompFrame *frame)
-{
-    bh_assert(frame->sp - frame->lp >= 1);
-    bh_assert((frame->sp - 1)->type == VALUE_TYPE_F32);
-    frame->sp--;
-    memset(frame->sp, 0, sizeof(*frame->sp));
-}
-
-static inline void
-pop_f64(AOTCompFrame *frame)
-{
-    bh_assert(frame->sp - frame->lp >= 2);
-    bh_assert((frame->sp - 1)->type == VALUE_TYPE_F64
-              && (frame->sp - 2)->type == VALUE_TYPE_F64);
-    frame->sp -= 2;
-    memset(frame->sp, 0, sizeof(*frame->sp) * 2);
-}
-
-static inline void
-pop_v128(AOTCompFrame *frame)
-{
-    bh_assert(frame->sp - frame->lp >= 4);
-    bh_assert((frame->sp - 1)->type == VALUE_TYPE_V128
-              && (frame->sp - 2)->type == VALUE_TYPE_V128
-              && (frame->sp - 3)->type == VALUE_TYPE_V128
-              && (frame->sp - 4)->type == VALUE_TYPE_V128);
-    frame->sp -= 4;
-    memset(frame->sp, 0, sizeof(*frame->sp) * 4);
-}
-
-static inline void
-pop_ref(AOTCompFrame *frame)
-{
-    bh_assert(frame->sp - frame->lp >= 1);
-    bh_assert((frame->sp - 1)->type == VALUE_TYPE_FUNCREF
-              || (frame->sp - 1)->type == VALUE_TYPE_EXTERNREF);
-    frame->sp -= 1;
-    memset(frame->sp, 0, sizeof(*frame->sp) * 1);
-}
-
-static inline void
-pop(AOTCompFrame *frame, uint32 n)
-{
-    bh_assert(frame->sp - frame->lp >= n);
-    frame->sp -= n;
-    memset(frame->sp, 0, sizeof(*frame->sp) * n);
-}
-
-static inline void
-set_local_i32(AOTCompFrame *frame, int n, LLVMValueRef value)
-{
-    frame->lp[n].value = value;
-    frame->lp[n].type = VALUE_TYPE_I32;
-    frame->lp[n].dirty = 1;
-}
-
-static inline void
-set_local_i64(AOTCompFrame *frame, int n, LLVMValueRef value)
-{
-    frame->lp[n].value = value;
-    frame->lp[n].type = VALUE_TYPE_I64;
-    frame->lp[n].dirty = 1;
-    frame->lp[n + 1].value = value;
-    frame->lp[n + 1].type = VALUE_TYPE_I64;
-    frame->lp[n + 1].dirty = 1;
-}
-
-static inline void
-set_local_f32(AOTCompFrame *frame, int n, LLVMValueRef value)
-{
-    frame->lp[n].value = value;
-    frame->lp[n].type = VALUE_TYPE_F32;
-    frame->lp[n].dirty = 1;
-}
-
-static inline void
-set_local_f64(AOTCompFrame *frame, int n, LLVMValueRef value)
-{
-    frame->lp[n].value = value;
-    frame->lp[n].type = VALUE_TYPE_F64;
-    frame->lp[n].dirty = 1;
-    frame->lp[n + 1].value = value;
-    frame->lp[n + 1].type = VALUE_TYPE_F64;
-    frame->lp[n + 1].dirty = 1;
-}
-
-static inline void
-set_local_v128(AOTCompFrame *frame, int n, LLVMValueRef value)
-{
-    uint32 i;
-    for (i = 0; i < 4; i++) {
-        frame->lp[n + i].value = value;
-        frame->lp[n + i].type = VALUE_TYPE_V128;
-        frame->lp[n + i].dirty = 1;
-    }
-}
-
-static inline void
-set_local_ref(AOTCompFrame *frame, int n, LLVMValueRef value, uint8 ref_type)
-{
-    bh_assert(frame->comp_ctx->enable_ref_types);
-    frame->lp[n].value = value;
-    frame->lp[n].type = ref_type;
-    frame->lp[n].dirty = 1;
-}
-
 #define CHECK_STACK()                                          \
     do {                                                       \
         if (!func_ctx->block_stack.block_list_end) {           \
@@ -367,7 +124,7 @@ set_local_ref(AOTCompFrame *frame, int n, LLVMValueRef value, uint8 ref_type)
         AOTValue *aot_value;                                                 \
         CHECK_STACK();                                                       \
         aot_value = aot_value_stack_pop(                                     \
-            comp_ctx, &func_ctx->block_stack.block_list_end->value_stack);   \
+            &func_ctx->block_stack.block_list_end->value_stack);             \
         if (!check_type_compatible(aot_value->type, value_type)) {           \
             aot_set_last_error("invalid WASM stack data type.");             \
             wasm_runtime_free(aot_value);                                    \
@@ -406,13 +163,21 @@ set_local_ref(AOTCompFrame *frame, int n, LLVMValueRef value, uint8 ref_type)
 #define POP_V128(v) POP(v, VALUE_TYPE_V128)
 #define POP_FUNCREF(v) POP(v, VALUE_TYPE_FUNCREF)
 #define POP_EXTERNREF(v) POP(v, VALUE_TYPE_EXTERNREF)
-
+#if WASM_ENABLE_GC != 0
+#define POP_REF(v) POP(v, VALUE_TYPE_GC_REF)
+#else
+#define POP_REF(v)                                                          \
+    do {                                                                    \
+        bh_assert(                                                          \
+            !"should not POP_REF when WASM_ENABLE_GC macro isn't enabled"); \
+    } while (0)
+#endif
 #define POP_COND(llvm_value)                                                   \
     do {                                                                       \
         AOTValue *aot_value;                                                   \
         CHECK_STACK();                                                         \
         aot_value = aot_value_stack_pop(                                       \
-            comp_ctx, &func_ctx->block_stack.block_list_end->value_stack);     \
+            &func_ctx->block_stack.block_list_end->value_stack);               \
         if (aot_value->type != VALUE_TYPE_I1                                   \
             && aot_value->type != VALUE_TYPE_I32) {                            \
             aot_set_last_error("invalid WASM stack data type.");               \
@@ -433,24 +198,23 @@ set_local_ref(AOTCompFrame *frame, int n, LLVMValueRef value, uint8 ref_type)
         wasm_runtime_free(aot_value);                                          \
     } while (0)
 
-#define PUSH(llvm_value, value_type)                                      \
-    do {                                                                  \
-        AOTValue *aot_value;                                              \
-        if (!func_ctx->block_stack.block_list_end) {                      \
-            aot_set_last_error("WASM block stack underflow.");            \
-            goto fail;                                                    \
-        }                                                                 \
-        aot_value = wasm_runtime_malloc(sizeof(AOTValue));                \
-        if (!aot_value) {                                                 \
-            aot_set_last_error("allocate memory failed.");                \
-            goto fail;                                                    \
-        }                                                                 \
-        memset(aot_value, 0, sizeof(AOTValue));                           \
-        aot_value->type = value_type;                                     \
-        aot_value->value = llvm_value;                                    \
-        aot_value_stack_push(                                             \
-            comp_ctx, &func_ctx->block_stack.block_list_end->value_stack, \
-            aot_value);                                                   \
+#define PUSH(llvm_value, value_type)                                        \
+    do {                                                                    \
+        AOTValue *aot_value;                                                \
+        if (!func_ctx->block_stack.block_list_end) {                        \
+            aot_set_last_error("WASM block stack underflow.");              \
+            goto fail;                                                      \
+        }                                                                   \
+        aot_value = wasm_runtime_malloc(sizeof(AOTValue));                  \
+        if (!aot_value) {                                                   \
+            aot_set_last_error("allocate memory failed.");                  \
+            goto fail;                                                      \
+        }                                                                   \
+        memset(aot_value, 0, sizeof(AOTValue));                             \
+        aot_value->type = value_type;                                       \
+        aot_value->value = llvm_value;                                      \
+        aot_value_stack_push(                                               \
+            &func_ctx->block_stack.block_list_end->value_stack, aot_value); \
     } while (0)
 
 #define PUSH_I32(v) PUSH(v, VALUE_TYPE_I32)
@@ -461,6 +225,15 @@ set_local_ref(AOTCompFrame *frame, int n, LLVMValueRef value, uint8 ref_type)
 #define PUSH_COND(v) PUSH(v, VALUE_TYPE_I1)
 #define PUSH_FUNCREF(v) PUSH(v, VALUE_TYPE_FUNCREF)
 #define PUSH_EXTERNREF(v) PUSH(v, VALUE_TYPE_EXTERNREF)
+#if WASM_ENABLE_GC != 0
+#define PUSH_REF(v) PUSH(v, VALUE_TYPE_GC_REF)
+#else
+#define PUSH_REF(v)                                                          \
+    do {                                                                     \
+        bh_assert(                                                           \
+            !"should not PUSH_REF when WASM_ENABLE_GC macro isn't enabled"); \
+    } while (0)
+#endif
 
 #define TO_LLVM_TYPE(wasm_type) \
     wasm_type_to_llvm_type(&comp_ctx->basic_types, wasm_type)
@@ -473,15 +246,19 @@ set_local_ref(AOTCompFrame *frame, int n, LLVMValueRef value, uint8 ref_type)
 #define INT1_TYPE comp_ctx->basic_types.int1_type
 #define INT8_TYPE comp_ctx->basic_types.int8_type
 #define INT16_TYPE comp_ctx->basic_types.int16_type
+#define INTPTR_TYPE comp_ctx->basic_types.intptr_type
 #define MD_TYPE comp_ctx->basic_types.meta_data_type
 #define INT8_PTR_TYPE comp_ctx->basic_types.int8_ptr_type
 #define INT16_PTR_TYPE comp_ctx->basic_types.int16_ptr_type
 #define INT32_PTR_TYPE comp_ctx->basic_types.int32_ptr_type
 #define INT64_PTR_TYPE comp_ctx->basic_types.int64_ptr_type
+#define INTPTR_PTR_TYPE comp_ctx->basic_types.intptr_ptr_type
 #define F32_PTR_TYPE comp_ctx->basic_types.float32_ptr_type
 #define F64_PTR_TYPE comp_ctx->basic_types.float64_ptr_type
 #define FUNC_REF_TYPE comp_ctx->basic_types.funcref_type
 #define EXTERN_REF_TYPE comp_ctx->basic_types.externref_type
+#define GC_REF_TYPE comp_ctx->basic_types.gc_ref_type
+#define GC_REF_PTR_TYPE comp_ctx->basic_types.gc_ref_ptr_type
 
 #define INT8_PTR_TYPE_GS comp_ctx->basic_types.int8_ptr_type_gs
 #define INT16_PTR_TYPE_GS comp_ctx->basic_types.int16_ptr_type_gs
@@ -520,6 +297,8 @@ set_local_ref(AOTCompFrame *frame, int n, LLVMValueRef value, uint8 ref_type)
 #define I64_63 LLVM_CONST(i64_63)
 #define I64_64 LLVM_CONST(i64_64)
 #define REF_NULL I32_NEG_ONE
+#define GC_REF_NULL LLVM_CONST(gc_ref_null)
+#define I8_PTR_NULL LLVM_CONST(i8_ptr_null)
 
 #define V128_TYPE comp_ctx->basic_types.v128_type
 #define V128_PTR_TYPE comp_ctx->basic_types.v128_ptr_type
