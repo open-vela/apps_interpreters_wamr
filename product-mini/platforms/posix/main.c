@@ -17,6 +17,10 @@
 #if WASM_ENABLE_LIBC_WASI != 0
 #include "../common/libc_wasi.c"
 #endif
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #if BH_HAS_DLFCN
 #include <dlfcn.h>
@@ -561,6 +565,8 @@ int
 main(int argc, char *argv[])
 {
     int32 ret = -1;
+    int fd;
+    struct stat sb;
     char *wasm_file = NULL;
     const char *func_name = NULL;
     uint8 *wasm_file_buf = NULL;
@@ -594,7 +600,7 @@ main(int argc, char *argv[])
     int log_verbose_level = 2;
 #endif
     bool is_repl_mode = false;
-    bool is_xip_file = false;
+    bool is_mapped_file = true;
 #if WASM_CONFIGURABLE_BOUNDS_CHECKS != 0
     bool disable_bounds_checks = false;
 #endif
@@ -881,39 +887,42 @@ main(int argc, char *argv[])
         native_lib_list, native_lib_count, native_lib_loaded_list);
 #endif
 
-    /* load WASM byte buffer from WASM bin file */
-    if (!(wasm_file_buf =
-              (uint8 *)bh_read_file_to_buffer(wasm_file, &wasm_file_size)))
+    /* Try to open wasm_file by mmap */
+
+    if ((fd = open(wasm_file, O_RDONLY)) < 0) {
+        printf("Open wasm app file [%s] failed.\n", wasm_file);
         goto fail1;
-
-#if WASM_ENABLE_AOT != 0
-    if (wasm_runtime_is_xip_file(wasm_file_buf, wasm_file_size)) {
-        uint8 *wasm_file_mapped;
-        uint8 *daddr;
-        int map_prot = MMAP_PROT_READ | MMAP_PROT_WRITE | MMAP_PROT_EXEC;
-        int map_flags = MMAP_MAP_32BIT;
-
-        if (!(wasm_file_mapped = os_mmap(NULL, (uint32)wasm_file_size, map_prot,
-                                         map_flags, os_get_invalid_handle()))) {
-            printf("mmap memory failed\n");
-            wasm_runtime_free(wasm_file_buf);
-            goto fail1;
-        }
-
-#if (WASM_MEM_DUAL_BUS_MIRROR != 0)
-        daddr = os_get_dbus_mirror(wasm_file_mapped);
-#else
-        daddr = wasm_file_mapped;
-#endif
-        bh_memcpy_s(daddr, wasm_file_size, wasm_file_buf, wasm_file_size);
-#if (WASM_MEM_DUAL_BUS_MIRROR != 0)
-        os_dcache_flush();
-#endif
-        wasm_runtime_free(wasm_file_buf);
-        wasm_file_buf = wasm_file_mapped;
-        is_xip_file = true;
     }
-#endif
+
+    if (fstat(fd, &sb) == -1) {
+        printf("Get wasm app file size failed.\n");
+        goto fail1;
+    }
+
+    wasm_file_size = sb.st_size;
+
+    if ((wasm_file_buf = (uint8 *)mmap(
+             NULL, sb.st_size, MMAP_PROT_WRITE | PROT_READ | MMAP_PROT_EXEC,
+             MMAP_MAP_32BIT, fd, 0))
+        == MAP_FAILED) {
+
+        is_mapped_file = false;
+    }
+
+    /* If mmap file failed, then read it into buffer, and if it's not a XIP file
+     */
+    if (!wasm_runtime_is_xip_file(wasm_file_buf, wasm_file_size)
+        || !is_mapped_file) {
+
+        /* Unmap file it mapped already */
+        if (wasm_file_buf)
+            munmap(wasm_file_buf, wasm_file_size);
+
+        is_mapped_file = false;
+        if (!(wasm_file_buf =
+                  (uint8 *)bh_read_file_to_buffer(wasm_file, &wasm_file_size)))
+            goto fail1;
+    }
 
 #if WASM_ENABLE_MULTI_MODULE != 0
     wasm_runtime_set_module_reader(module_reader_callback,
@@ -1045,7 +1054,7 @@ fail3:
 
 fail2:
     /* free the file buffer */
-    if (!is_xip_file)
+    if (!is_mapped_file)
         wasm_runtime_free(wasm_file_buf);
     else
         os_munmap(wasm_file_buf, wasm_file_size);
@@ -1059,6 +1068,9 @@ fail1:
 
     /* destroy runtime environment */
     wasm_runtime_destroy();
+
+    /* close the file */
+    close(fd);
 
     return ret;
 }
