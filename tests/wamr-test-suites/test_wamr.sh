@@ -15,7 +15,7 @@ function help()
     echo "test_wamr.sh [options]"
     echo "-c clean previous test results, not start test"
     echo "-s {suite_name} test only one suite (spec|wasi_certification)"
-    echo "-m set compile target of iwasm(x86_64|x86_32|armv7_vfp|thumbv7_vfp|riscv64_lp64d|riscv64_lp64|aarch64)"
+    echo "-m set compile target of iwasm(x86_64|x86_32|armv7_vfp|thumbv7_vfp|riscv64_lp64d|riscv64_lp64)"
     echo "-t set compile type of iwasm(classic-interp|fast-interp|jit|aot|fast-jit|multi-tier-jit)"
     echo "-M enable multi module feature"
     echo "-p enable multi thread feature"
@@ -55,8 +55,7 @@ PLATFORM=$(uname -s | tr A-Z a-z)
 PARALLELISM=0
 ENABLE_QEMU=0
 QEMU_FIRMWARE=""
-# prod/testsuite-all branch
-WASI_TESTSUITE_COMMIT="cf64229727f71043d5849e73934e249e12cb9e06"
+WASI_TESTSUITE_COMMIT="aca78d919355ae00af141e6741a439039615b257"
 
 while getopts ":s:cabgvt:m:MCpSXxwPGQF:" opt
 do
@@ -509,7 +508,7 @@ function wasi_certification_test()
 
     cd ${WORK_DIR}
     if [ ! -d "wasi-testsuite" ]; then
-        echo "wasi-testsuite not exist, clone it from github"
+        echo "wasi not exist, clone it from github"
         git clone -b prod/testsuite-all \
             --single-branch https://github.com/WebAssembly/wasi-testsuite.git
     fi
