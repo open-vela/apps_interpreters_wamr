@@ -144,6 +144,14 @@
 #define WASM_ENABLE_WASI_NN 0
 #endif
 
+#ifndef WASM_ENABLE_WASI_NN_GPU
+#define WASM_ENABLE_WASI_NN_GPU 0
+#endif
+
+#ifndef WASM_ENABLE_WASI_NN_EXTERNAL_DELEGATE
+#define WASM_ENABLE_WASI_NN_EXTERNAL_DELEGATE 0
+#endif
+
 /* Default disable libc emcc */
 #ifndef WASM_ENABLE_LIBC_EMCC
 #define WASM_ENABLE_LIBC_EMCC 0
@@ -360,13 +368,6 @@
 #define APP_HEAP_SIZE_MIN (256)
 #define APP_HEAP_SIZE_MAX (512 * 1024 * 1024)
 
-/* Default min/max gc heap size of each app */
-#ifndef GC_HEAP_SIZE_DEFAULT
-#define GC_HEAP_SIZE_DEFAULT (128 * 1024)
-#endif
-#define GC_HEAP_SIZE_MIN (4 * 1024)
-#define GC_HEAP_SIZE_MAX (1024 * 1024 * 1024)
-
 /* Default wasm stack size of each app */
 #if defined(BUILD_TARGET_X86_64) || defined(BUILD_TARGET_AMD_64)
 #define DEFAULT_WASM_STACK_SIZE (16 * 1024)
@@ -440,23 +441,6 @@
 #define WASM_ENABLE_REF_TYPES 0
 #endif
 
-#ifndef WASM_ENABLE_GC
-#define WASM_ENABLE_GC 0
-#endif
-
-/* GC binaryen compatible mode */
-#ifndef WASM_ENABLE_GC_BINARYEN
-#define WASM_ENABLE_GC_BINARYEN 0
-#endif
-
-#ifndef GC_REFTYPE_MAP_SIZE_DEFAULT
-#define GC_REFTYPE_MAP_SIZE_DEFAULT 64
-#endif
-
-#ifndef GC_RTTOBJ_MAP_SIZE_DEFAULT
-#define GC_RTTOBJ_MAP_SIZE_DEFAULT 64
-#endif
-
 #ifndef WASM_ENABLE_SGX_IPFS
 #define WASM_ENABLE_SGX_IPFS 0
 #endif
@@ -494,6 +478,11 @@
  */
 #ifndef WASM_MEM_DUAL_BUS_MIRROR
 #define WASM_MEM_DUAL_BUS_MIRROR 0
+#endif
+
+/* The max number of module instance contexts. */
+#ifndef WASM_MAX_INSTANCE_CONTEXTS
+#define WASM_MAX_INSTANCE_CONTEXTS 8
 #endif
 
 #endif /* end of _CONFIG_H_ */
