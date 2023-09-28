@@ -117,31 +117,13 @@ struct WASMMemoryInstance {
 #endif
 };
 
-/* WASMTableInstance is used to represent table instance in
- * runtime, to compute the table element address with index
- * we need to know the element type and the element ref type.
- * For pointer type, it's 32-bit or 64-bit, align up to 8 bytes
- * to simplify the computation.
- * And each struct member should be 4-byte or 8-byte aligned.
- */
 struct WASMTableInstance {
-    /* The element type */
-    uint8 elem_type;
-    uint8 __padding__[7];
-    union {
-#if WASM_ENABLE_GC != 0
-        WASMRefType *elem_ref_type;
-#else
-        uintptr_t elem_ref_type;
-#endif
-        uint64 __padding__;
-    } elem_ref_type;
     /* Current size */
     uint32 cur_size;
     /* Maximum size */
     uint32 max_size;
     /* Table elements */
-    table_elem_type_t elems[1];
+    uint32 elems[1];
 };
 
 struct WASMGlobalInstance {
@@ -153,9 +135,6 @@ struct WASMGlobalInstance {
     uint32 data_offset;
     /* initial value */
     WASMValue initial_value;
-#if WASM_ENABLE_GC != 0
-    WASMRefType *ref_type;
-#endif
 #if WASM_ENABLE_MULTI_MODULE != 0
     /* just for import, keep the reference here */
     WASMModuleInstance *import_module_inst;
@@ -231,8 +210,22 @@ typedef struct CApiFuncImport {
     void *env_arg;
 } CApiFuncImport;
 
+/* The common part of WASMModuleInstanceExtra and AOTModuleInstanceExtra */
+typedef struct WASMModuleInstanceExtraCommon {
+    void *contexts[WASM_MAX_INSTANCE_CONTEXTS];
+    CApiFuncImport *c_api_func_imports;
+    /* pointer to the exec env currently used */
+    WASMExecEnv *cur_exec_env;
+#if WASM_CONFIGUABLE_BOUNDS_CHECKS != 0
+    /* Disable bounds checks or not */
+    bool disable_bounds_checks;
+#endif
+} WASMModuleInstanceExtraCommon;
+
 /* Extra info of WASM module instance for interpreter/jit mode */
 typedef struct WASMModuleInstanceExtra {
+    WASMModuleInstanceExtraCommon common;
+
     WASMGlobalInstance *globals;
     WASMFunctionInstance *functions;
 
@@ -244,7 +237,6 @@ typedef struct WASMModuleInstanceExtra {
     WASMFunctionInstance *free_function;
     WASMFunctionInstance *retain_function;
 
-    CApiFuncImport *c_api_func_imports;
     RunningMode running_mode;
 
 #if WASM_ENABLE_MULTI_MODULE != 0
@@ -252,13 +244,6 @@ typedef struct WASMModuleInstanceExtra {
     bh_list *sub_module_inst_list;
     /* linked table instances of import table instances */
     WASMTableInstance **table_insts_linked;
-#endif
-
-#if WASM_ENABLE_GC != 0
-    /* The gc heap memory pool */
-    uint8 *gc_heap_pool;
-    /* The gc heap created */
-    void *gc_heap_handle;
 #endif
 
 #if WASM_ENABLE_MEMORY_PROFILING != 0
@@ -269,10 +254,6 @@ typedef struct WASMModuleInstanceExtra {
     || (WASM_ENABLE_FAST_JIT != 0 && WASM_ENABLE_JIT != 0 \
         && WASM_ENABLE_LAZY_JIT != 0)
     WASMModuleInstance *next;
-#endif
-#if WASM_CONFIGUABLE_BOUNDS_CHECKS != 0
-    /* Disable bounds checks or not */
-    bool disable_bounds_checks;
 #endif
 } WASMModuleInstanceExtra;
 
@@ -319,12 +300,8 @@ struct WASMModuleInstance {
        it denotes `AOTModule *` */
     DefPointer(WASMModule *, module);
 
-#if WASM_ENABLE_LIBC_WASI
-    /* WASI context */
-    DefPointer(WASIContext *, wasi_ctx);
-#else
-    DefPointer(void *, wasi_ctx);
-#endif
+    DefPointer(void *, used_to_be_wasi_ctx); /* unused */
+
     DefPointer(WASMExecEnv *, exec_env_singleton);
     /* Array of function pointers to import functions,
        not available in AOTModuleInstance */
@@ -419,7 +396,11 @@ wasm_get_func_code_end(WASMFunctionInstance *func)
 }
 
 WASMModule *
-wasm_load(uint8 *buf, uint32 size, char *error_buf, uint32 error_buf_size);
+wasm_load(uint8 *buf, uint32 size,
+#if WASM_ENABLE_MULTI_MODULE != 0
+          bool main_module,
+#endif
+          char *error_buf, uint32 error_buf_size);
 
 WASMModule *
 wasm_load_from_sections(WASMSection *section_list, char *error_buf,
@@ -544,7 +525,7 @@ void
 wasm_get_module_inst_mem_consumption(const WASMModuleInstance *module,
                                      WASMModuleInstMemConsumption *mem_conspn);
 
-#if WASM_ENABLE_REF_TYPES != 0 || WASM_ENABLE_GC != 0
+#if WASM_ENABLE_REF_TYPES != 0
 static inline bool
 wasm_elem_is_active(uint32 mode)
 {
@@ -565,17 +546,8 @@ wasm_elem_is_declarative(uint32 mode)
 
 bool
 wasm_enlarge_table(WASMModuleInstance *module_inst, uint32 table_idx,
-                   uint32 inc_entries, table_elem_type_t init_val);
-#endif /* WASM_ENABLE_REF_TYPES != 0 || WASM_ENABLE_GC != 0 */
-
-#if WASM_ENABLE_GC != 0
-void *
-wasm_create_func_obj(WASMModuleInstance *module_inst, uint32 func_idx,
-                     bool throw_exce, char *error_buf, uint32 error_buf_size);
-
-bool
-wasm_traverse_gc_rootset(WASMExecEnv *exec_env, void *heap);
-#endif
+                   uint32 inc_entries, uint32 init_val);
+#endif /* WASM_ENABLE_REF_TYPES != 0 */
 
 static inline WASMTableInstance *
 wasm_get_table_inst(const WASMModuleInstance *module_inst, uint32 tbl_idx)
@@ -678,11 +650,11 @@ llvm_jit_table_copy(WASMModuleInstance *module_inst, uint32 src_tbl_idx,
 
 void
 llvm_jit_table_fill(WASMModuleInstance *module_inst, uint32 tbl_idx,
-                    uint32 length, uintptr_t val, uint32 data_offset);
+                    uint32 length, uint32 val, uint32 data_offset);
 
 uint32
 llvm_jit_table_grow(WASMModuleInstance *module_inst, uint32 tbl_idx,
-                    uint32 inc_entries, uintptr_t init_val);
+                    uint32 inc_entries, uint32 init_val);
 #endif
 
 #if WASM_ENABLE_DUMP_CALL_STACK != 0 || WASM_ENABLE_PERF_PROFILING != 0
@@ -697,6 +669,16 @@ llvm_jit_free_frame(WASMExecEnv *exec_env);
 #if WASM_ENABLE_LIBC_WASI != 0 && WASM_ENABLE_MULTI_MODULE != 0
 void
 wasm_propagate_wasi_args(WASMModule *module);
+#endif
+
+#if WASM_ENABLE_THREAD_MGR != 0
+void
+exception_lock(WASMModuleInstance *module_inst);
+void
+exception_unlock(WASMModuleInstance *module_inst);
+#else
+#define exception_lock(module_inst) (void)(module_inst)
+#define exception_unlock(module_inst) (void)(module_inst)
 #endif
 
 #ifdef __cplusplus

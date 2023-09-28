@@ -15,15 +15,18 @@
 #include "llvm-c/ExecutionEngine.h"
 #include "llvm-c/Analysis.h"
 #include "llvm-c/BitWriter.h"
+#if LLVM_VERSION_MAJOR < 17
 #include "llvm-c/Transforms/Utils.h"
 #include "llvm-c/Transforms/Scalar.h"
 #include "llvm-c/Transforms/Vectorize.h"
 #include "llvm-c/Transforms/PassManagerBuilder.h"
+#include "llvm-c/Initialization.h"
+#endif
 
 #include "llvm-c/Orc.h"
 #include "llvm-c/Error.h"
 #include "llvm-c/Support.h"
-#include "llvm-c/Initialization.h"
+
 #include "llvm-c/TargetMachine.h"
 #include "llvm-c/LLJIT.h"
 #if WASM_ENABLE_DEBUG_AOT != 0
@@ -194,7 +197,6 @@ typedef struct AOTLLVMTypes {
     LLVMTypeRef int16_type;
     LLVMTypeRef int32_type;
     LLVMTypeRef int64_type;
-    LLVMTypeRef intptr_type;
     LLVMTypeRef float32_type;
     LLVMTypeRef float64_type;
     LLVMTypeRef void_type;
@@ -204,7 +206,6 @@ typedef struct AOTLLVMTypes {
     LLVMTypeRef int16_ptr_type;
     LLVMTypeRef int32_ptr_type;
     LLVMTypeRef int64_ptr_type;
-    LLVMTypeRef intptr_ptr_type;
     LLVMTypeRef float32_ptr_type;
     LLVMTypeRef float64_ptr_type;
 
@@ -374,9 +375,6 @@ typedef struct AOTCompContext {
     /* Whether optimize the JITed code */
     bool optimize;
 
-    /* Enable GC */
-    bool enable_gc;
-
     uint32 opt_level;
     uint32 size_level;
 
@@ -452,7 +450,6 @@ typedef struct AOTCompOption {
     bool disable_llvm_lto;
     bool enable_llvm_pgo;
     bool enable_stack_estimation;
-    bool enable_gc;
     char *use_prof_file;
     uint32 opt_level;
     uint32 size_level;
