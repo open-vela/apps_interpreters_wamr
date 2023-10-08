@@ -24,6 +24,10 @@ ssize_t
 blocking_op_readv(wasm_exec_env_t exec_env, int fd, const struct iovec *iov,
                   int iovcnt)
 {
+#ifdef BH_PLATFORM_WINDOWS
+    errno = ENOTSUP;
+    return -1;
+#else
     if (!wasm_runtime_begin_blocking_op(exec_env)) {
         errno = EINTR;
         return -1;
@@ -31,6 +35,7 @@ blocking_op_readv(wasm_exec_env_t exec_env, int fd, const struct iovec *iov,
     ssize_t ret = readv(fd, iov, iovcnt);
     wasm_runtime_end_blocking_op(exec_env);
     return ret;
+#endif
 }
 
 #if CONFIG_HAS_PREADV
@@ -46,11 +51,15 @@ blocking_op_preadv(wasm_exec_env_t exec_env, int fd, const struct iovec *iov,
     wasm_runtime_end_blocking_op(exec_env);
     return ret;
 }
-#else  /* CONFIG_HAS_PREADV */
+#else /* CONFIG_HAS_PREADV */
 ssize_t
 blocking_op_pread(wasm_exec_env_t exec_env, int fd, void *p, size_t nb,
                   off_t offset)
 {
+#ifdef BH_PLATFORM_WINDOWS
+    errno = ENOTSUP;
+    return -1;
+#else
     if (!wasm_runtime_begin_blocking_op(exec_env)) {
         errno = EINTR;
         return -1;
@@ -58,6 +67,7 @@ blocking_op_pread(wasm_exec_env_t exec_env, int fd, void *p, size_t nb,
     ssize_t ret = pread(fd, p, nb, offset);
     wasm_runtime_end_blocking_op(exec_env);
     return ret;
+#endif
 }
 #endif /* CONFIG_HAS_PREADV */
 
@@ -65,6 +75,10 @@ ssize_t
 blocking_op_writev(wasm_exec_env_t exec_env, int fd, const struct iovec *iov,
                    int iovcnt)
 {
+#ifdef BH_PLATFORM_WINDOWS
+    errno = ENOTSUP;
+    return -1;
+#else
     if (!wasm_runtime_begin_blocking_op(exec_env)) {
         errno = EINTR;
         return -1;
@@ -72,6 +86,7 @@ blocking_op_writev(wasm_exec_env_t exec_env, int fd, const struct iovec *iov,
     ssize_t ret = writev(fd, iov, iovcnt);
     wasm_runtime_end_blocking_op(exec_env);
     return ret;
+#endif
 }
 
 #if CONFIG_HAS_PWRITEV
@@ -87,11 +102,15 @@ blocking_op_pwritev(wasm_exec_env_t exec_env, int fd, const struct iovec *iov,
     wasm_runtime_end_blocking_op(exec_env);
     return ret;
 }
-#else  /* CONFIG_HAS_PWRITEV */
+#else /* CONFIG_HAS_PWRITEV */
 ssize_t
 blocking_op_pwrite(wasm_exec_env_t exec_env, int fd, const void *p, size_t nb,
                    off_t offset)
 {
+#ifdef BH_PLATFORM_WINDOWS
+    errno = ENOTSUP;
+    return -1;
+#else
     if (!wasm_runtime_begin_blocking_op(exec_env)) {
         errno = EINTR;
         return -1;
@@ -99,6 +118,7 @@ blocking_op_pwrite(wasm_exec_env_t exec_env, int fd, const void *p, size_t nb,
     ssize_t ret = pwrite(fd, p, nb, offset);
     wasm_runtime_end_blocking_op(exec_env);
     return ret;
+#endif
 }
 #endif /* CONFIG_HAS_PWRITEV */
 
@@ -191,6 +211,10 @@ int
 blocking_op_openat(wasm_exec_env_t exec_env, int fd, const char *path,
                    int oflags, mode_t mode)
 {
+#ifdef BH_PLATFORM_WINDOWS
+    errno = ENOTSUP;
+    return -1;
+#else
     if (!wasm_runtime_begin_blocking_op(exec_env)) {
         errno = EINTR;
         return -1;
@@ -198,4 +222,5 @@ blocking_op_openat(wasm_exec_env_t exec_env, int fd, const char *path,
     int ret = openat(fd, path, oflags, mode);
     wasm_runtime_end_blocking_op(exec_env);
     return ret;
+#endif
 }

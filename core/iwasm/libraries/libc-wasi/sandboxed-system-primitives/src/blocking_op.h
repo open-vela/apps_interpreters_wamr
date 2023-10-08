@@ -47,6 +47,11 @@ blocking_op_socket_addr_resolve(wasm_exec_env_t exec_env, const char *host,
                                 uint8_t *hint_is_ipv4,
                                 bh_addr_info_t *addr_info,
                                 size_t addr_info_size, size_t *max_info_size);
+
+#ifdef BH_PLATFORM_WINDOWS
+/* TODO to be (re)moved as part of WASI on windows work */
+typedef unsigned mode_t;
+#endif
 int
 blocking_op_openat(wasm_exec_env_t exec_env, int fd, const char *path,
                    int oflags, mode_t mode);
