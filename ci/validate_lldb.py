@@ -32,6 +32,7 @@ parser.add_argument(
 
 options = parser.parse_args()
 
+lldb_command_prologue = f'{options.lldb} -o "process connect -p wasm connect://127.0.0.1:{options.port}"'
 lldb_command_epilogue = '-o q'
 
 test_cases = {
@@ -63,13 +64,8 @@ def print_process_output(p):
         print("Failed to get process output")
 
 # Step2: Launch WAMR in debug mode and validate lldb commands
-
-iteration = 0
+wamr_cmd = f'{options.wamr} -g=127.0.0.1:{options.port} {WASM_OUT_FILE}'
 for case, cmd in test_cases.items():
-    lldb_command_prologue = f'{options.lldb} -o "process connect -p wasm connect://127.0.0.1:{int(options.port) + iteration}"'
-    wamr_cmd = f'{options.wamr} -g=127.0.0.1:{int(options.port) + iteration} {WASM_OUT_FILE}'
-    iteration += 1
-
     has_error = False
     print(f'validating case [{case}] ...', end='', flush=True)
     lldb_cmd = f'{lldb_command_prologue} {cmd} {lldb_command_epilogue}'

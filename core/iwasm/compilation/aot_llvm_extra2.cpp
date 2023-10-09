@@ -4,10 +4,8 @@
  */
 
 #include <llvm-c/TargetMachine.h>
-#if LLVM_VERSION_MAJOR < 17
 #include <llvm/ADT/None.h>
 #include <llvm/ADT/Optional.h>
-#endif
 #include <llvm/IR/Instructions.h>
 #if LLVM_VERSION_MAJOR >= 14
 #include <llvm/MC/TargetRegistry.h>
@@ -19,13 +17,6 @@
 #include "bh_assert.h"
 
 #include "aot_llvm_extra2.h"
-
-#if LLVM_VERSION_MAJOR >= 17
-namespace llvm {
-template<typename T>
-using Optional = std::optional<T>;
-}
-#endif
 
 static llvm::Optional<llvm::Reloc::Model>
 convert(LLVMRelocMode reloc_mode)

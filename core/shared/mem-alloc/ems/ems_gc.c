@@ -69,7 +69,10 @@ sweep_instance_heap(gc_heap_t *heap)
     hmu_type_t ut;
     gc_size_t size;
     int i, lsize;
+
+#if GC_STAT_DATA != 0
     gc_size_t tot_free = 0;
+#endif
 
     bh_assert(gci_is_heap_valid(heap));
 
@@ -113,7 +116,9 @@ sweep_instance_heap(gc_heap_t *heap)
         else {
             /* current block is still live */
             if (last) {
+#if GC_STAT_DATA != 0
                 tot_free += (char *)cur - (char *)last;
+#endif
                 gci_add_fc(heap, last, (char *)cur - (char *)last);
                 hmu_mark_pinuse(last);
                 last = NULL;
@@ -131,15 +136,16 @@ sweep_instance_heap(gc_heap_t *heap)
     bh_assert(cur == end);
 
     if (last) {
+#if GC_STAT_DATA != 0
         tot_free += (char *)cur - (char *)last;
+#endif
         gci_add_fc(heap, last, (char *)cur - (char *)last);
         hmu_mark_pinuse(last);
     }
 
-    heap->total_free_size = tot_free;
-
 #if GC_STAT_DATA != 0
     heap->total_gc_count++;
+    heap->total_free_size = tot_free;
     if ((heap->current_size - tot_free) > heap->highmark_size)
         heap->highmark_size = heap->current_size - tot_free;
 

@@ -53,10 +53,6 @@ os_thread_get_stack_boundary(void)
 #endif
 }
 
-void
-os_thread_jit_write_protect_np(bool enabled)
-{}
-
 int
 os_usleep(uint32 usec)
 {

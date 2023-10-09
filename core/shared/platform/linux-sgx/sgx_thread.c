@@ -210,7 +210,3 @@ os_thread_get_stack_boundary()
     /* TODO: get sgx stack boundary */
     return NULL;
 }
-
-void
-os_thread_jit_write_protect_np(bool enabled)
-{}

@@ -140,10 +140,6 @@ os_thread_get_stack_boundary(void)
     return tid->stack_addr;
 }
 
-void
-os_thread_jit_write_protect_np(bool enabled)
-{}
-
 int
 os_mutex_init(korp_mutex *mutex)
 {
@@ -210,8 +206,4 @@ os_mprotect(void *addr, size_t size, int prot)
 
 void
 os_dcache_flush(void)
-{}
-
-void
-os_icache_flush(void *start, size_t len)
 {}
