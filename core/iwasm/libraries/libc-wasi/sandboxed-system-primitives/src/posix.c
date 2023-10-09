@@ -22,18 +22,6 @@
 #include "rights.h"
 #include "str.h"
 
-/* Some platforms (e.g. Windows) already define `min()` macro.
- We're undefing it here to make sure the `min` call does exactly
- what we want it to do. */
-#ifdef min
-#undef min
-#endif
-static inline size_t
-min(size_t a, size_t b)
-{
-    return a > b ? b : a;
-}
-
 #if 0 /* TODO: -std=gnu99 causes compile error, comment them first */
 // struct iovec must have the same layout as __wasi_iovec_t.
 static_assert(offsetof(struct iovec, iov_base) ==
@@ -96,9 +84,7 @@ convert_errno(int error)
         X(EDEADLK)
         X(EDESTADDRREQ)
         X(EDOM)
-#ifdef EDQUOT
         X(EDQUOT)
-#endif
         X(EEXIST)
         X(EFAULT)
         X(EFBIG)
@@ -115,9 +101,7 @@ convert_errno(int error)
         X(EMFILE)
         X(EMLINK)
         X(EMSGSIZE)
-#ifdef EMULTIHOP
         X(EMULTIHOP)
-#endif
         X(ENAMETOOLONG)
         X(ENETDOWN)
         X(ENETRESET)
@@ -156,9 +140,7 @@ convert_errno(int error)
         X(EROFS)
         X(ESPIPE)
         X(ESRCH)
-#ifdef ESTALE
         X(ESTALE)
-#endif
         X(ETIMEDOUT)
         X(ETXTBSY)
         X(EXDEV)
@@ -211,7 +193,6 @@ convert_timespec(const struct timespec *ts)
 }
 
 // Converts a CloudABI clock identifier to a POSIX clock identifier.
-#ifndef BH_PLATFORM_WINDOWS
 static bool
 convert_clockid(__wasi_clockid_t in, clockid_t *out)
 {
@@ -236,7 +217,6 @@ convert_clockid(__wasi_clockid_t in, clockid_t *out)
             return false;
     }
 }
-#endif
 
 static void
 wasi_addr_to_bh_sockaddr(const __wasi_addr_t *wasi_addr,
@@ -318,9 +298,6 @@ __wasi_errno_t
 wasmtime_ssp_clock_res_get(__wasi_clockid_t clock_id,
                            __wasi_timestamp_t *resolution)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return __WASI_ENOSYS;
-#else
     clockid_t nclock_id;
     if (!convert_clockid(clock_id, &nclock_id))
         return __WASI_EINVAL;
@@ -329,7 +306,6 @@ wasmtime_ssp_clock_res_get(__wasi_clockid_t clock_id,
         return convert_errno(errno);
     *resolution = convert_timespec(&ts);
     return 0;
-#endif
 }
 
 __wasi_errno_t
@@ -337,9 +313,6 @@ wasmtime_ssp_clock_time_get(__wasi_clockid_t clock_id,
                             __wasi_timestamp_t precision,
                             __wasi_timestamp_t *time)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return __WASI_ENOSYS;
-#else
     clockid_t nclock_id;
     if (!convert_clockid(clock_id, &nclock_id))
         return __WASI_EINVAL;
@@ -348,7 +321,6 @@ wasmtime_ssp_clock_time_get(__wasi_clockid_t clock_id,
         return convert_errno(errno);
     *time = convert_timespec(&ts);
     return 0;
-#endif
 }
 
 struct fd_prestat {
@@ -475,10 +447,8 @@ struct fd_object {
     union {
         // Data associated with directory file descriptors.
         struct {
-            struct mutex lock; // Lock to protect members below.
-#ifndef BH_PLATFORM_WINDOWS
-            DIR *handle; // Directory handle.
-#endif
+            struct mutex lock;         // Lock to protect members below.
+            DIR *handle;               // Directory handle.
             __wasi_dircookie_t offset; // Offset of the directory.
         } directory;
     };
@@ -610,9 +580,6 @@ fd_determine_type_rights(int fd, __wasi_filetype_t *type,
                          __wasi_rights_t *rights_base,
                          __wasi_rights_t *rights_inheriting)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return __WASI_ENOSYS;
-#else
     struct stat sb;
     if (fstat(fd, &sb) < 0)
         return convert_errno(errno);
@@ -682,7 +649,6 @@ fd_determine_type_rights(int fd, __wasi_filetype_t *type,
             break;
     }
     return 0;
-#endif
 }
 
 // Returns the underlying file descriptor number of a file descriptor
@@ -716,9 +682,6 @@ static void
 fd_object_release(wasm_exec_env_t env, struct fd_object *fo)
     UNLOCKS(fo->refcount)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return __WASI_ENOSYS;
-#else
     if (refcount_release(&fo->refcount)) {
         int saved_errno = errno;
         switch (fo->type) {
@@ -740,7 +703,6 @@ fd_object_release(wasm_exec_env_t env, struct fd_object *fo)
         wasm_runtime_free(fo);
         errno = saved_errno;
     }
-#endif
 }
 
 // Inserts an already existing file descriptor into the file descriptor
@@ -748,9 +710,6 @@ fd_object_release(wasm_exec_env_t env, struct fd_object *fo)
 bool
 fd_table_insert_existing(struct fd_table *ft, __wasi_fd_t in, int out)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return false;
-#else
     __wasi_filetype_t type = __WASI_FILETYPE_UNKNOWN;
     __wasi_rights_t rights_base = 0, rights_inheriting = 0;
     struct fd_object *fo;
@@ -794,7 +753,6 @@ fd_table_insert_existing(struct fd_table *ft, __wasi_fd_t in, int out)
     fd_table_attach(ft, in, fo, rights_base, rights_inheriting);
     rwlock_unlock(&ft->lock);
     return true;
-#endif
 }
 
 // Picks an unused slot from the file descriptor table.
@@ -838,9 +796,6 @@ fd_table_insert_fd(wasm_exec_env_t exec_env, struct fd_table *ft, int in,
                    __wasi_rights_t rights_inheriting, __wasi_fd_t *out)
     REQUIRES_UNLOCKED(ft->lock)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return __WASI_ENOSYS;
-#else
     struct fd_object *fo;
 
     __wasi_errno_t error = fd_object_new(type, &fo);
@@ -859,7 +814,6 @@ fd_table_insert_fd(wasm_exec_env_t exec_env, struct fd_table *ft, int in,
     }
     return fd_table_insert(exec_env, ft, fo, rights_base, rights_inheriting,
                            out);
-#endif
 }
 
 __wasi_errno_t
@@ -988,9 +942,6 @@ __wasi_errno_t
 wasmtime_ssp_fd_datasync(wasm_exec_env_t exec_env, struct fd_table *curfds,
                          __wasi_fd_t fd)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return __WASI_ENOSYS;
-#else
     struct fd_object *fo;
     __wasi_errno_t error =
         fd_object_get(curfds, &fo, fd, __WASI_RIGHT_FD_DATASYNC, 0);
@@ -1006,7 +957,6 @@ wasmtime_ssp_fd_datasync(wasm_exec_env_t exec_env, struct fd_table *curfds,
     if (ret < 0)
         return convert_errno(errno);
     return 0;
-#endif
 }
 
 __wasi_errno_t
@@ -1014,9 +964,6 @@ wasmtime_ssp_fd_pread(wasm_exec_env_t exec_env, struct fd_table *curfds,
                       __wasi_fd_t fd, const __wasi_iovec_t *iov, size_t iovcnt,
                       __wasi_filesize_t offset, size_t *nread)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return __WASI_ENOSYS;
-#else
     if (iovcnt == 0)
         return __WASI_EINVAL;
 
@@ -1084,7 +1031,6 @@ wasmtime_ssp_fd_pread(wasm_exec_env_t exec_env, struct fd_table *curfds,
         return 0;
     }
 #endif
-#endif
 }
 
 __wasi_errno_t
@@ -1093,9 +1039,6 @@ wasmtime_ssp_fd_pwrite(wasm_exec_env_t exec_env, struct fd_table *curfds,
                        size_t iovcnt, __wasi_filesize_t offset,
                        size_t *nwritten)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return __WASI_ENOSYS;
-#else
     if (iovcnt == 0)
         return __WASI_EINVAL;
 
@@ -1143,7 +1086,6 @@ wasmtime_ssp_fd_pwrite(wasm_exec_env_t exec_env, struct fd_table *curfds,
         return convert_errno(errno);
     *nwritten = (size_t)len;
     return 0;
-#endif
 }
 
 __wasi_errno_t
@@ -1151,9 +1093,6 @@ wasmtime_ssp_fd_read(wasm_exec_env_t exec_env, struct fd_table *curfds,
                      __wasi_fd_t fd, const __wasi_iovec_t *iov, size_t iovcnt,
                      size_t *nread)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return __WASI_ENOSYS;
-#else
     struct fd_object *fo;
     __wasi_errno_t error =
         fd_object_get(curfds, &fo, fd, __WASI_RIGHT_FD_READ, 0);
@@ -1167,7 +1106,6 @@ wasmtime_ssp_fd_read(wasm_exec_env_t exec_env, struct fd_table *curfds,
         return convert_errno(errno);
     *nread = (size_t)len;
     return 0;
-#endif
 }
 
 __wasi_errno_t
@@ -1315,9 +1253,6 @@ __wasi_errno_t
 wasmtime_ssp_fd_fdstat_get(wasm_exec_env_t exec_env, struct fd_table *curfds,
                            __wasi_fd_t fd, __wasi_fdstat_t *buf)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return __WASI_ENOSYS;
-#else
     struct fd_table *ft = curfds;
     rwlock_rdlock(&ft->lock);
     struct fd_entry *fe;
@@ -1363,7 +1298,6 @@ wasmtime_ssp_fd_fdstat_get(wasm_exec_env_t exec_env, struct fd_table *curfds,
         buf->fs_flags |= __WASI_FDFLAG_SYNC;
 #endif
     return 0;
-#endif
 }
 
 __wasi_errno_t
@@ -1371,9 +1305,6 @@ wasmtime_ssp_fd_fdstat_set_flags(wasm_exec_env_t exec_env,
                                  struct fd_table *curfds, __wasi_fd_t fd,
                                  __wasi_fdflags_t fs_flags)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return __WASI_ENOSYS;
-#else
     int noflags = 0;
     if ((fs_flags & __WASI_FDFLAG_APPEND) != 0)
         noflags |= O_APPEND;
@@ -1409,7 +1340,6 @@ wasmtime_ssp_fd_fdstat_set_flags(wasm_exec_env_t exec_env,
     if (ret < 0)
         return convert_errno(errno);
     return 0;
-#endif
 }
 
 __wasi_errno_t
@@ -1439,9 +1369,6 @@ __wasi_errno_t
 wasmtime_ssp_fd_sync(wasm_exec_env_t exec_env, struct fd_table *curfds,
                      __wasi_fd_t fd)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return __WASI_ENOSYS;
-#else
     struct fd_object *fo;
     __wasi_errno_t error =
         fd_object_get(curfds, &fo, fd, __WASI_RIGHT_FD_SYNC, 0);
@@ -1453,7 +1380,6 @@ wasmtime_ssp_fd_sync(wasm_exec_env_t exec_env, struct fd_table *curfds,
     if (ret < 0)
         return convert_errno(errno);
     return 0;
-#endif
 }
 
 __wasi_errno_t
@@ -1461,9 +1387,6 @@ wasmtime_ssp_fd_write(wasm_exec_env_t exec_env, struct fd_table *curfds,
                       __wasi_fd_t fd, const __wasi_ciovec_t *iov, size_t iovcnt,
                       size_t *nwritten)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return __WASI_ENOSYS;
-#else
     struct fd_object *fo;
     __wasi_errno_t error =
         fd_object_get(curfds, &fo, fd, __WASI_RIGHT_FD_WRITE, 0);
@@ -1498,7 +1421,6 @@ wasmtime_ssp_fd_write(wasm_exec_env_t exec_env, struct fd_table *curfds,
         return convert_errno(errno);
     *nwritten = (size_t)len;
     return 0;
-#endif
 }
 
 __wasi_errno_t
@@ -1572,9 +1494,6 @@ wasmtime_ssp_fd_allocate(wasm_exec_env_t exec_env, struct fd_table *curfds,
                          __wasi_fd_t fd, __wasi_filesize_t offset,
                          __wasi_filesize_t len)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return __WASI_ENOSYS;
-#else
     struct fd_object *fo;
     __wasi_errno_t error =
         fd_object_get(curfds, &fo, fd, __WASI_RIGHT_FD_ALLOCATE, 0);
@@ -1598,7 +1517,6 @@ wasmtime_ssp_fd_allocate(wasm_exec_env_t exec_env, struct fd_table *curfds,
     if (ret != 0)
         return convert_errno(ret);
     return 0;
-#endif
 }
 
 // Reads the entire contents of a symbolic link, returning the contents
@@ -1667,9 +1585,6 @@ path_get(struct fd_table *curfds, struct path_access *pa, __wasi_fd_t fd,
          bool needs_final_component)
     TRYLOCKS_EXCLUSIVE(0, pa->fd_object->refcount)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return __WASI_ENOSYS;
-#else
     char *path = str_nullterminate(upath, upathlen);
     if (path == NULL)
         return convert_errno(errno);
@@ -1892,7 +1807,6 @@ fail:
     fd_object_release(NULL, fo);
     return error;
 #endif
-#endif
 }
 
 static __wasi_errno_t
@@ -1922,9 +1836,6 @@ wasmtime_ssp_path_create_directory(wasm_exec_env_t exec_env,
                                    struct fd_table *curfds, __wasi_fd_t fd,
                                    const char *path, size_t pathlen)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return __WASI_ENOSYS;
-#else
     struct path_access pa;
     __wasi_errno_t error =
         path_get_nofollow(curfds, &pa, fd, path, pathlen,
@@ -1937,13 +1848,11 @@ wasmtime_ssp_path_create_directory(wasm_exec_env_t exec_env,
     if (ret < 0)
         return convert_errno(errno);
     return 0;
-#endif
 }
 
 static bool
 validate_path(const char *path, struct fd_prestats *pt)
 {
-#ifndef BH_PLATFORM_WINDOWS
     size_t i;
     char path_resolved[PATH_MAX], prestat_dir_resolved[PATH_MAX];
     char *path_real, *prestat_dir_real;
@@ -1964,7 +1873,7 @@ validate_path(const char *path, struct fd_prestats *pt)
                 return true;
         }
     }
-#endif
+
     return false;
 }
 
@@ -1975,9 +1884,6 @@ wasmtime_ssp_path_link(wasm_exec_env_t exec_env, struct fd_table *curfds,
                        size_t old_path_len, __wasi_fd_t new_fd,
                        const char *new_path, size_t new_path_len)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return __WASI_ENOSYS;
-#else
     struct path_access old_pa;
     __wasi_errno_t error =
         path_get(curfds, &old_pa, old_fd, old_flags, old_path, old_path_len,
@@ -2026,7 +1932,6 @@ wasmtime_ssp_path_link(wasm_exec_env_t exec_env, struct fd_table *curfds,
     if (ret < 0)
         return convert_errno(errno);
     return 0;
-#endif
 }
 
 __wasi_errno_t
@@ -2037,9 +1942,6 @@ wasmtime_ssp_path_open(wasm_exec_env_t exec_env, struct fd_table *curfds,
                        __wasi_rights_t fs_rights_inheriting,
                        __wasi_fdflags_t fs_flags, __wasi_fd_t *fd)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return __WASI_ENOSYS;
-#else
     // Rights that should be installed on the new file descriptor.
     __wasi_rights_t rights_base = fs_rights_base;
     __wasi_rights_t rights_inheriting = fs_rights_inheriting;
@@ -2159,7 +2061,6 @@ wasmtime_ssp_path_open(wasm_exec_env_t exec_env, struct fd_table *curfds,
     return fd_table_insert_fd(exec_env, curfds, nfd, type,
                               rights_base & max_base,
                               rights_inheriting & max_inheriting, fd);
-#endif
 }
 
 // Copies out directory entry metadata or filename, potentially
@@ -2181,9 +2082,6 @@ wasmtime_ssp_fd_readdir(wasm_exec_env_t exec_env, struct fd_table *curfds,
                         __wasi_fd_t fd, void *buf, size_t nbyte,
                         __wasi_dircookie_t cookie, size_t *bufused)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return __WASI_ENOSYS;
-#else
     struct fd_object *fo;
     __wasi_errno_t error =
         fd_object_get(curfds, &fo, fd, __WASI_RIGHT_FD_READDIR, 0);
@@ -2273,7 +2171,6 @@ wasmtime_ssp_fd_readdir(wasm_exec_env_t exec_env, struct fd_table *curfds,
     mutex_unlock(&fo->directory.lock);
     fd_object_release(exec_env, fo);
     return 0;
-#endif
 }
 
 __wasi_errno_t
@@ -2281,9 +2178,6 @@ wasmtime_ssp_path_readlink(wasm_exec_env_t exec_env, struct fd_table *curfds,
                            __wasi_fd_t fd, const char *path, size_t pathlen,
                            char *buf, size_t bufsize, size_t *bufused)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return __WASI_ENOSYS;
-#else
     struct path_access pa;
     __wasi_errno_t error = path_get_nofollow(
         curfds, &pa, fd, path, pathlen, __WASI_RIGHT_PATH_READLINK, 0, false);
@@ -2300,7 +2194,6 @@ wasmtime_ssp_path_readlink(wasm_exec_env_t exec_env, struct fd_table *curfds,
         return convert_errno(errno);
     *bufused = (size_t)len < bufsize ? (size_t)len : bufsize;
     return 0;
-#endif
 }
 
 __wasi_errno_t
@@ -2309,9 +2202,6 @@ wasmtime_ssp_path_rename(wasm_exec_env_t exec_env, struct fd_table *curfds,
                          size_t old_path_len, __wasi_fd_t new_fd,
                          const char *new_path, size_t new_path_len)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return __WASI_ENOSYS;
-#else
     struct path_access old_pa;
     __wasi_errno_t error =
         path_get_nofollow(curfds, &old_pa, old_fd, old_path, old_path_len,
@@ -2334,10 +2224,8 @@ wasmtime_ssp_path_rename(wasm_exec_env_t exec_env, struct fd_table *curfds,
         return convert_errno(errno);
     }
     return 0;
-#endif
 }
 
-#ifndef BH_PLATFORM_WINDOWS
 // Converts a POSIX stat structure to a CloudABI filestat structure.
 static void
 convert_stat(const struct stat *in, __wasi_filestat_t *out)
@@ -2352,15 +2240,11 @@ convert_stat(const struct stat *in, __wasi_filestat_t *out)
         .st_ctim = convert_timespec(&in->st_ctim),
     };
 }
-#endif
 
 __wasi_errno_t
 wasmtime_ssp_fd_filestat_get(wasm_exec_env_t exec_env, struct fd_table *curfds,
                              __wasi_fd_t fd, __wasi_filestat_t *buf)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return __WASI_ENOSYS;
-#else
     struct fd_object *fo;
     __wasi_errno_t error =
         fd_object_get(curfds, &fo, fd, __WASI_RIGHT_FD_FILESTAT_GET, 0);
@@ -2382,7 +2266,6 @@ wasmtime_ssp_fd_filestat_get(wasm_exec_env_t exec_env, struct fd_table *curfds,
     if (ret < 0)
         return convert_errno(errno);
     return 0;
-#endif
 }
 
 static void
@@ -2400,7 +2283,6 @@ convert_timestamp(__wasi_timestamp_t in, struct timespec *out)
     out->tv_sec = (time_t)in < BH_TIME_T_MAX ? (time_t)in : BH_TIME_T_MAX;
 }
 
-#ifndef BH_PLATFORM_WINDOWS
 // Converts the provided timestamps and flags to a set of arguments for
 // futimens() and utimensat().
 static void
@@ -2428,16 +2310,12 @@ convert_utimens_arguments(__wasi_timestamp_t st_atim,
         ts[1].tv_nsec = UTIME_OMIT;
     }
 }
-#endif
 
 __wasi_errno_t
 wasmtime_ssp_fd_filestat_set_size(wasm_exec_env_t exec_env,
                                   struct fd_table *curfds, __wasi_fd_t fd,
                                   __wasi_filesize_t st_size)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return __WASI_ENOSYS;
-#else
     struct fd_object *fo;
     __wasi_errno_t error =
         fd_object_get(curfds, &fo, fd, __WASI_RIGHT_FD_FILESTAT_SET_SIZE, 0);
@@ -2449,7 +2327,6 @@ wasmtime_ssp_fd_filestat_set_size(wasm_exec_env_t exec_env,
     if (ret < 0)
         return convert_errno(errno);
     return 0;
-#endif
 }
 
 __wasi_errno_t
@@ -2459,9 +2336,6 @@ wasmtime_ssp_fd_filestat_set_times(wasm_exec_env_t exec_env,
                                    __wasi_timestamp_t st_mtim,
                                    __wasi_fstflags_t fstflags)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return __WASI_ENOSYS;
-#else
     if ((fstflags
          & ~(__WASI_FILESTAT_SET_ATIM | __WASI_FILESTAT_SET_ATIM_NOW
              | __WASI_FILESTAT_SET_MTIM | __WASI_FILESTAT_SET_MTIM_NOW))
@@ -2482,7 +2356,6 @@ wasmtime_ssp_fd_filestat_set_times(wasm_exec_env_t exec_env,
     if (ret < 0)
         return convert_errno(errno);
     return 0;
-#endif
 }
 
 __wasi_errno_t
@@ -2491,9 +2364,6 @@ wasmtime_ssp_path_filestat_get(wasm_exec_env_t exec_env,
                                __wasi_lookupflags_t flags, const char *path,
                                size_t pathlen, __wasi_filestat_t *buf)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return __WASI_ENOSYS;
-#else
     struct path_access pa;
     __wasi_errno_t error = path_get(curfds, &pa, fd, flags, path, pathlen,
                                     __WASI_RIGHT_PATH_FILESTAT_GET, 0, false);
@@ -2524,7 +2394,6 @@ wasmtime_ssp_path_filestat_get(wasm_exec_env_t exec_env,
     else if (S_ISSOCK(sb.st_mode))
         buf->st_filetype = __WASI_FILETYPE_SOCKET_STREAM;
     return 0;
-#endif
 }
 
 __wasi_errno_t
@@ -2536,9 +2405,6 @@ wasmtime_ssp_path_filestat_set_times(wasm_exec_env_t exec_env,
                                      __wasi_timestamp_t st_mtim,
                                      __wasi_fstflags_t fstflags)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return __WASI_ENOSYS;
-#else
     if (((fstflags
           & ~(__WASI_FILESTAT_SET_ATIM | __WASI_FILESTAT_SET_ATIM_NOW
               | __WASI_FILESTAT_SET_MTIM | __WASI_FILESTAT_SET_MTIM_NOW))
@@ -2567,7 +2433,6 @@ wasmtime_ssp_path_filestat_set_times(wasm_exec_env_t exec_env,
     if (ret < 0)
         return convert_errno(errno);
     return 0;
-#endif
 }
 
 __wasi_errno_t
@@ -2576,9 +2441,6 @@ wasmtime_ssp_path_symlink(wasm_exec_env_t exec_env, struct fd_table *curfds,
                           size_t old_path_len, __wasi_fd_t fd,
                           const char *new_path, size_t new_path_len)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return __WASI_ENOSYS;
-#else
     char *target = str_nullterminate(old_path, old_path_len);
     if (target == NULL)
         return convert_errno(errno);
@@ -2606,16 +2468,12 @@ wasmtime_ssp_path_symlink(wasm_exec_env_t exec_env, struct fd_table *curfds,
     if (ret < 0)
         return convert_errno(errno);
     return 0;
-#endif
 }
 
 __wasi_errno_t
 wasmtime_ssp_path_unlink_file(wasm_exec_env_t exec_env, struct fd_table *curfds,
                               __wasi_fd_t fd, const char *path, size_t pathlen)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return __WASI_ENOSYS;
-#else
     struct path_access pa;
     __wasi_errno_t error = path_get_nofollow(
         curfds, &pa, fd, path, pathlen, __WASI_RIGHT_PATH_UNLINK_FILE, 0, true);
@@ -2644,7 +2502,6 @@ wasmtime_ssp_path_unlink_file(wasm_exec_env_t exec_env, struct fd_table *curfds,
         return convert_errno(errno);
     }
     return 0;
-#endif
 }
 
 __wasi_errno_t
@@ -2652,9 +2509,6 @@ wasmtime_ssp_path_remove_directory(wasm_exec_env_t exec_env,
                                    struct fd_table *curfds, __wasi_fd_t fd,
                                    const char *path, size_t pathlen)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return __WASI_ENOSYS;
-#else
     struct path_access pa;
     __wasi_errno_t error =
         path_get_nofollow(curfds, &pa, fd, path, pathlen,
@@ -2675,7 +2529,6 @@ wasmtime_ssp_path_remove_directory(wasm_exec_env_t exec_env,
         return convert_errno(errno);
     }
     return 0;
-#endif
 }
 
 __wasi_errno_t
@@ -2684,9 +2537,6 @@ wasmtime_ssp_poll_oneoff(wasm_exec_env_t exec_env, struct fd_table *curfds,
                          size_t nsubscriptions,
                          size_t *nevents) NO_LOCK_ANALYSIS
 {
-#ifdef BH_PLATFORM_WINDOWS
-    return __WASI_ENOSYS;
-#else
     // Sleeping.
     if (nsubscriptions == 1 && in[0].u.type == __WASI_EVENTTYPE_CLOCK) {
         out[0] = (__wasi_event_t){
@@ -2858,7 +2708,6 @@ wasmtime_ssp_poll_oneoff(wasm_exec_env_t exec_env, struct fd_table *curfds,
     else {
         timeout = -1;
     }
-
     int ret = poll(pfds, nsubscriptions, timeout);
 
     __wasi_errno_t error = 0;
@@ -2935,7 +2784,6 @@ wasmtime_ssp_poll_oneoff(wasm_exec_env_t exec_env, struct fd_table *curfds,
     wasm_runtime_free(fos);
     wasm_runtime_free(pfds);
     return error;
-#endif
 }
 
 __wasi_errno_t
@@ -3579,13 +3427,8 @@ wasmtime_ssp_sock_shutdown(wasm_exec_env_t exec_env, struct fd_table *curfds,
 __wasi_errno_t
 wasmtime_ssp_sched_yield(void)
 {
-#ifdef BH_PLATFORM_WINDOWS
-    if (!SwitchToThread())
-        return __WASI_EAGAIN;
-#else
     if (sched_yield() < 0)
         return convert_errno(errno);
-#endif
     return 0;
 }
 
@@ -3735,6 +3578,12 @@ addr_pool_insert(struct addr_pool *addr_pool, const char *addr, uint8 mask)
     }
     cur->next = next;
     return true;
+}
+
+static inline size_t
+min(size_t a, size_t b)
+{
+    return a > b ? b : a;
 }
 
 static void

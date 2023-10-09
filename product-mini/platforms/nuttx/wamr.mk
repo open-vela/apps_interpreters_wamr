@@ -204,8 +204,15 @@ else
 CFLAGS += -DWASM_ENABLE_BULK_MEMORY=0
 endif
 
+ifeq ($(CONFIG_INTERPRETERS_WAMR_AOT_STACK_FRAME), y)
+CFLAGS += -DWASM_ENABLE_AOT_STACK_FRAME=1
+else
+CFLAGS += -DWASM_ENABLE_AOT_STACK_FRAME=0
+endif ()
+
 ifeq ($(CONFIG_INTERPRETERS_WAMR_PERF_PROFILING),y)
 CFLAGS += -DWASM_ENABLE_PERF_PROFILING=1
+CFLAGS += -DWASM_ENABLE_AOT_STACK_FRAME=1
 else
 CFLAGS += -DWASM_ENABLE_PERF_PROFILING=0
 endif
@@ -224,6 +231,7 @@ endif
 
 ifeq ($(CONFIG_INTERPRETERS_WAMR_DUMP_CALL_STACK),y)
 CFLAGS += -DWASM_ENABLE_DUMP_CALL_STACK=1
+CFLAGS += -DWASM_ENABLE_AOT_STACK_FRAME=1
 else
 CFLAGS += -DWASM_ENABLE_DUMP_CALL_STACK=0
 endif
@@ -287,6 +295,20 @@ CSRCS += tid_allocator.c
 VPATH += $(IWASM_ROOT)/libraries/lib-wasi-threads
 else
 CFLAGS += -DWASM_ENABLE_LIB_WASI_THREADS=0
+endif
+
+ifeq ($(CONFIG_INTERPRETERS_WAMR_GC),y)
+CFLAGS += -DWASM_ENABLE_GC=1
+CSRCS += gc_type.c gc_object.c
+VPATH += $(IWASM_ROOT)/common/gc
+else
+CFLAGS += -DWASM_ENABLE_GC=0
+endif
+
+ifeq ($(CONFIG_INTERPRETERS_WAMR_GC_MANUALLY),y)
+CFLAGS += -DWASM_GC_MANUALLY=1
+else
+CFLAGS += -DWASM_GC_MANUALLY=0
 endif
 
 ifeq ($(CONFIG_INTERPRETERS_WAMR_LIB_PTHREAD),y)
@@ -366,6 +388,7 @@ CSRCS += nuttx_platform.c \
          ems_kfc.c \
          ems_alloc.c \
          ems_hmu.c \
+         ems_gc.c \
          bh_assert.c \
          bh_common.c \
          bh_hashmap.c \
