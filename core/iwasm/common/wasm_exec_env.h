@@ -38,8 +38,8 @@ typedef struct WASMExecEnv {
     /* Next thread's exec env of a WASM module instance. */
     struct WASMExecEnv *next;
 
-    /* Current interpreter/AOT frame of current thread */
-    struct WASMInterpFrame *cur_frame;
+    /* Previous thread's exec env of a WASM module instance. */
+    struct WASMExecEnv *prev;
 
     /* Note: field module_inst, argv_buf, native_stack_boundary,
        suspend_flags, aux_stack_boundary, aux_stack_bottom, and
@@ -129,6 +129,9 @@ typedef struct WASMExecEnv {
     void *attachment;
 
     void *user_data;
+
+    /* Current interpreter frame of current thread */
+    struct WASMInterpFrame *cur_frame;
 
     /* The native thread handle of current thread */
     korp_tid handle;

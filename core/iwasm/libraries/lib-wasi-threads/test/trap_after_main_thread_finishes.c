@@ -38,7 +38,7 @@ main(int argc, char **argv)
 
     assert(start_args_init(&data.base));
     int thread_id = __wasi_thread_spawn(&data);
-    ASSERT_VALID_TID(thread_id);
+    assert(thread_id > 0 && "Thread creation failed");
 
     return EXIT_SUCCESS;
 }

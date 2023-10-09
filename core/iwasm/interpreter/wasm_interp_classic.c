@@ -381,12 +381,6 @@ init_frame_refs(uint8 *frame_ref, uint32 cell_num, WASMFunctionInstance *func)
     }
 }
 
-uint8 *
-wasm_interp_get_frame_ref(WASMInterpFrame *frame)
-{
-    return get_frame_ref(frame);
-}
-
 /* Return the corresponding ref slot of the given address of local
    variable or stack pointer. */
 
@@ -1075,9 +1069,8 @@ wasm_interp_call_func_native(WASMModuleInstance *module_inst,
     if (!func_import->call_conv_wasm_c_api) {
         native_func_pointer = module_inst->import_func_ptrs[cur_func_index];
     }
-    else if (module_inst->e->common.c_api_func_imports) {
-        c_api_func_import =
-            module_inst->e->common.c_api_func_imports + cur_func_index;
+    else if (module_inst->e->c_api_func_imports) {
+        c_api_func_import = module_inst->e->c_api_func_imports + cur_func_index;
         native_func_pointer = c_api_func_import->func_ptr_linked;
     }
 
@@ -1630,8 +1623,6 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                 while (node_cache) {
                     node_next = bh_list_elem_next(node_cache);
                     if (node_cache->br_table_op_addr == frame_ip - 1) {
-                        if (lidx > node_cache->br_count)
-                            lidx = node_cache->br_count;
                         depth = node_cache->br_depths[lidx];
                         goto label_pop_csp_n;
                     }
@@ -5249,8 +5240,7 @@ llvm_jit_call_func_bytecode(WASMModuleInstance *module_inst,
     uint32 func_idx = (uint32)(function - module_inst->e->functions);
     bool ret;
 
-#if (WASM_ENABLE_DUMP_CALL_STACK != 0) || (WASM_ENABLE_PERF_PROFILING != 0) \
-    || (WASM_ENABLE_JIT_STACK_FRAME != 0)
+#if (WASM_ENABLE_DUMP_CALL_STACK != 0) || (WASM_ENABLE_PERF_PROFILING != 0)
     if (!llvm_jit_alloc_frame(exec_env, function - module_inst->e->functions)) {
         /* wasm operand stack overflow has been thrown,
            no need to throw again */
@@ -5276,8 +5266,7 @@ llvm_jit_call_func_bytecode(WASMModuleInstance *module_inst,
             if (size > UINT32_MAX
                 || !(argv1 = wasm_runtime_malloc((uint32)size))) {
                 wasm_set_exception(module_inst, "allocate memory failed");
-                ret = false;
-                goto fail;
+                return false;
             }
         }
 
@@ -5301,7 +5290,7 @@ llvm_jit_call_func_bytecode(WASMModuleInstance *module_inst,
         if (!ret) {
             if (argv1 != argv1_buf)
                 wasm_runtime_free(argv1);
-            goto fail;
+            return ret;
         }
 
         /* Get extra result values */
@@ -5335,26 +5324,15 @@ llvm_jit_call_func_bytecode(WASMModuleInstance *module_inst,
 
         if (argv1 != argv1_buf)
             wasm_runtime_free(argv1);
-
-        ret = true;
+        return true;
     }
     else {
         ret = wasm_runtime_invoke_native(
             exec_env, module_inst->func_ptrs[func_idx], func_type, NULL, NULL,
             argv, argc, argv);
 
-        if (ret)
-            ret = !wasm_copy_exception(module_inst, NULL);
+        return ret && !wasm_copy_exception(module_inst, NULL) ? true : false;
     }
-
-fail:
-
-#if (WASM_ENABLE_DUMP_CALL_STACK != 0) || (WASM_ENABLE_PERF_PROFILING != 0) \
-    || (WASM_ENABLE_JIT_STACK_FRAME != 0)
-    llvm_jit_free_frame(exec_env);
-#endif
-
-    return ret;
 }
 #endif /* end of WASM_ENABLE_JIT != 0 */
 
@@ -5373,6 +5351,7 @@ wasm_interp_call_wasm(WASMModuleInstance *module_inst, WASMExecEnv *exec_env,
     unsigned frame_size = wasm_interp_interp_frame_size(all_cell_num);
     unsigned i;
     bool copy_argv_from_frame = true;
+    char exception[EXCEPTION_BUF_LEN];
 
     if (argc < function->param_cell_num) {
         char buf[128];
@@ -5505,6 +5484,8 @@ wasm_interp_call_wasm(WASMModuleInstance *module_inst, WASMExecEnv *exec_env,
             wasm_interp_dump_call_stack(exec_env, true, NULL, 0);
         }
 #endif
+        wasm_copy_exception(module_inst, exception);
+        LOG_DEBUG("meet an exception %s", exception);
     }
 
     wasm_exec_env_set_cur_frame(exec_env, prev_frame);

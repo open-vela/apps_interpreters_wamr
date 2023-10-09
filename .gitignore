@@ -9,7 +9,6 @@
 *.obj
 *.a
 *.so
-.clangd
 .DS_Store
 
 core/deps/**
