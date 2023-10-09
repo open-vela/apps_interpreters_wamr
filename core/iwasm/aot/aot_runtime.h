@@ -106,12 +106,36 @@ typedef struct AOTFunctionInstance {
 
 typedef struct AOTModuleInstanceExtra {
     DefPointer(const uint32 *, stack_sizes);
-    WASMModuleInstanceExtraCommon common;
-#if WASM_ENABLE_MULTI_MODULE != 0
-    bh_list sub_module_inst_list_head;
-    bh_list *sub_module_inst_list;
+    CApiFuncImport *c_api_func_imports;
+#if WASM_CONFIGUABLE_BOUNDS_CHECKS != 0
+    /* Disable bounds checks or not */
+    bool disable_bounds_checks;
 #endif
 } AOTModuleInstanceExtra;
+
+#if defined(OS_ENABLE_HW_BOUND_CHECK) && defined(BH_PLATFORM_WINDOWS)
+/* clang-format off */
+typedef struct AOTUnwindInfo {
+    uint8 Version       : 3;
+    uint8 Flags         : 5;
+    uint8 SizeOfProlog;
+    uint8 CountOfCodes;
+    uint8 FrameRegister : 4;
+    uint8 FrameOffset   : 4;
+    struct {
+        struct {
+            uint8 CodeOffset;
+            uint8 UnwindOp : 4;
+            uint8 OpInfo   : 4;
+        };
+        uint16 FrameOffset;
+    } UnwindCode[1];
+} AOTUnwindInfo;
+/* clang-format on */
+
+/* size of mov instruction and jmp instruction */
+#define PLT_ITEM_SIZE 12
+#endif
 
 #if defined(BUILD_TARGET_X86_64) || defined(BUILD_TARGET_AMD_64)
 typedef struct GOTItem {
@@ -175,12 +199,6 @@ typedef struct AOTModule {
     void **func_ptrs;
     /* func type indexes of AOTed (un-imported) functions */
     uint32 *func_type_indexes;
-#if WASM_ENABLE_AOT_STACK_FRAME != 0
-    /* max local cell nums of AOTed (un-imported) functions */
-    uint32 *max_local_cell_nums;
-    /* max stack cell nums of AOTed (un-imported) functions */
-    uint32 *max_stack_cell_nums;
-#endif
 
     /* export info */
     uint32 export_count;
@@ -212,6 +230,14 @@ typedef struct AOTModule {
     uint32 xmm_plt_count;
     uint32 real_plt_count;
     uint32 float_plt_count;
+#endif
+
+#if defined(OS_ENABLE_HW_BOUND_CHECK) && defined(BH_PLATFORM_WINDOWS)
+    /* dynamic function table to be added by RtlAddFunctionTable(),
+       used to unwind the call stack and register exception handler
+       for AOT functions */
+    RUNTIME_FUNCTION *rtl_func_table;
+    bool rtl_func_table_registered;
 #endif
 
 #if defined(BUILD_TARGET_X86_64) || defined(BUILD_TARGET_AMD_64)
@@ -256,20 +282,6 @@ typedef struct AOTModule {
     WASIArguments wasi_args;
     bool import_wasi_api;
 #endif
-
-#if WASM_ENABLE_MULTI_MODULE != 0
-    /* TODO: add mutex for mutli-thread? */
-    bh_list import_module_list_head;
-    bh_list *import_module_list;
-#endif
-
-#if WASM_ENABLE_GC != 0
-    /* Ref types hash set */
-    HashMap *ref_type_set;
-    struct WASMRttType **rtt_types;
-    korp_mutex rtt_type_lock;
-#endif
-
 #if WASM_ENABLE_DEBUG_AOT != 0
     void *elf_hdr;
     uint32 elf_size;
@@ -287,10 +299,6 @@ typedef struct AOTModule {
 #define AOTMemoryInstance WASMMemoryInstance
 #define AOTTableInstance WASMTableInstance
 #define AOTModuleInstance WASMModuleInstance
-
-#if WASM_ENABLE_MULTI_MODULE != 0
-#define AOTSubModInstNode WASMSubModInstNode
-#endif
 
 /* Target info, read from ELF header of object file */
 typedef struct AOTTargetInfo {
@@ -323,35 +331,12 @@ typedef struct AOTFuncPerfProfInfo {
 
 /* AOT auxiliary call stack */
 typedef struct AOTFrame {
-    /* The frame of the caller which is calling current function */
     struct AOTFrame *prev_frame;
-
-    /* The non-imported function index of current function */
-    uintptr_t func_index;
-
-    /* Used when performance profiling is enabled */
-    uintptr_t time_started;
-
-    /* Used when performance profiling is enabled */
+    uint32 func_index;
+#if WASM_ENABLE_PERF_PROFILING != 0
+    uint64 time_started;
     AOTFuncPerfProfInfo *func_perf_prof_info;
-
-    /* Instruction pointer: offset to the bytecode array */
-    uintptr_t ip_offset;
-
-    /* Operand stack top pointer of the current frame */
-    uint32 *sp;
-
-    /* Frame ref flags (GC only) */
-    uint8 *frame_ref;
-
-    /**
-     * Frame data, the layout is:
-     *  local area: parameters and local variables
-     *  stack area: wasm operand stack
-     *  frame ref flags (GC only):
-     *      whether each cell in local and stack area is a GC obj
-     */
-    uint32 lp[1];
+#endif
 } AOTFrame;
 
 #if WASM_ENABLE_STATIC_PGO != 0
@@ -618,7 +603,7 @@ void
 aot_get_module_inst_mem_consumption(const AOTModuleInstance *module_inst,
                                     WASMModuleInstMemConsumption *mem_conspn);
 
-#if WASM_ENABLE_REF_TYPES != 0 || WASM_ENABLE_GC != 0
+#if WASM_ENABLE_REF_TYPES != 0
 void
 aot_drop_table_seg(AOTModuleInstance *module_inst, uint32 tbl_seg_idx);
 
@@ -701,25 +686,6 @@ aot_exchange_uint32(uint8 *p_data);
 void
 aot_exchange_uint64(uint8 *p_data);
 #endif /* end of WASM_ENABLE_STATIC_PGO != 0 */
-
-#if WASM_ENABLE_GC != 0
-void *
-aot_create_func_obj(AOTModuleInstance *module_inst, uint32 func_idx,
-                    bool throw_exce, char *error_buf, uint32 error_buf_size);
-
-bool
-aot_obj_is_instance_of(AOTModuleInstance *module_inst, WASMObjectRef gc_obj,
-                       uint32 type_index);
-
-WASMRttTypeRef
-aot_rtt_type_new(AOTModuleInstance *module_inst, uint32 type_index);
-
-bool
-aot_array_init_with_data(AOTModuleInstance *module_inst, uint32 seg_index,
-                         uint32 data_seg_offset, WASMArrayObjectRef array_obj,
-                         uint32 elem_size, uint32 array_len);
-
-#endif /* end of WASM_ENABLE_GC != 0 */
 
 #ifdef __cplusplus
 } /* end of extern "C" */

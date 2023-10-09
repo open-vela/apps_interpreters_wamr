@@ -79,7 +79,3 @@ os_dcache_flush(void)
     irq_unlock(key);
 #endif
 }
-
-void
-os_icache_flush(void *start, size_t len)
-{}

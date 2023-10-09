@@ -144,14 +144,6 @@
 #define WASM_ENABLE_WASI_NN 0
 #endif
 
-#ifndef WASM_ENABLE_WASI_NN_GPU
-#define WASM_ENABLE_WASI_NN_GPU 0
-#endif
-
-#ifndef WASM_ENABLE_WASI_NN_EXTERNAL_DELEGATE
-#define WASM_ENABLE_WASI_NN_EXTERNAL_DELEGATE 0
-#endif
-
 /* Default disable libc emcc */
 #ifndef WASM_ENABLE_LIBC_EMCC
 #define WASM_ENABLE_LIBC_EMCC 0
@@ -308,16 +300,6 @@
 /* Dump call stack */
 #ifndef WASM_ENABLE_DUMP_CALL_STACK
 #define WASM_ENABLE_DUMP_CALL_STACK 0
-#endif
-
-/* AOT stack frame */
-#ifndef WASM_ENABLE_AOT_STACK_FRAME
-#define WASM_ENABLE_AOT_STACK_FRAME 0
-#endif
-
-/* JIT stack frame */
-#ifndef WASM_ENABLE_JIT_STACK_FRAME
-#define WASM_ENABLE_JIT_STACK_FRAME 0
 #endif
 
 /* Heap verification */
@@ -512,11 +494,6 @@
  */
 #ifndef WASM_MEM_DUAL_BUS_MIRROR
 #define WASM_MEM_DUAL_BUS_MIRROR 0
-#endif
-
-/* The max number of module instance contexts. */
-#ifndef WASM_MAX_INSTANCE_CONTEXTS
-#define WASM_MAX_INSTANCE_CONTEXTS 8
 #endif
 
 #endif /* end of _CONFIG_H_ */
