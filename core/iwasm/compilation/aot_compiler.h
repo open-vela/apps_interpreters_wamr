@@ -229,13 +229,11 @@ check_type_compatible(uint8 src_type, uint8 dst_type)
 #define INT1_TYPE comp_ctx->basic_types.int1_type
 #define INT8_TYPE comp_ctx->basic_types.int8_type
 #define INT16_TYPE comp_ctx->basic_types.int16_type
-#define INTPTR_TYPE comp_ctx->basic_types.intptr_type
 #define MD_TYPE comp_ctx->basic_types.meta_data_type
 #define INT8_PTR_TYPE comp_ctx->basic_types.int8_ptr_type
 #define INT16_PTR_TYPE comp_ctx->basic_types.int16_ptr_type
 #define INT32_PTR_TYPE comp_ctx->basic_types.int32_ptr_type
 #define INT64_PTR_TYPE comp_ctx->basic_types.int64_ptr_type
-#define INTPTR_PTR_TYPE comp_ctx->basic_types.intptr_ptr_type
 #define F32_PTR_TYPE comp_ctx->basic_types.float32_ptr_type
 #define F64_PTR_TYPE comp_ctx->basic_types.float64_ptr_type
 #define FUNC_REF_TYPE comp_ctx->basic_types.funcref_type
@@ -364,6 +362,19 @@ check_type_compatible(uint8 src_type, uint8 dst_type)
             }                                                               \
         }                                                                   \
     } while (0)
+
+/* if val is a constant integer and its value is not undef or poison */
+static inline bool
+LLVMIsEfficientConstInt(LLVMValueRef val)
+{
+    return LLVMIsConstant(val)
+           && LLVMGetValueKind(val) == LLVMConstantIntValueKind
+           && !LLVMIsUndef(val)
+#if LLVM_VERSION_NUMBER >= 12
+           && !LLVMIsPoison(addr)
+#endif
+        ;
+}
 
 bool
 aot_compile_wasm(AOTCompContext *comp_ctx);
