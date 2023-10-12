@@ -33,8 +33,6 @@ extern "C" {
 
 #define NULL_REF (0xFFFFFFFF)
 
-#define TABLE_MAX_SIZE (1024)
-
 #define INIT_EXPR_TYPE_I32_CONST 0x41
 #define INIT_EXPR_TYPE_I64_CONST 0x42
 #define INIT_EXPR_TYPE_F32_CONST 0x43
