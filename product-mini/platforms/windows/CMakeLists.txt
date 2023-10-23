@@ -4,6 +4,7 @@
 cmake_minimum_required (VERSION 2.9)
 
 project (iwasm C ASM CXX)
+enable_language(ASM_MASM)
 # set (CMAKE_VERBOSE_MAKEFILE 1)
 
 set (WAMR_BUILD_PLATFORM "windows")
@@ -11,6 +12,8 @@ set (WAMR_BUILD_PLATFORM "windows")
 # Reset default linker flags
 set (CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "")
 set (CMAKE_SHARED_LIBRARY_LINK_CXX_FLAGS "")
+
+set (CMAKE_C_STANDARD 99)
 
 add_definitions(-DCOMPILING_WASM_RUNTIME_API=1)
 
@@ -93,15 +96,6 @@ if (WAMR_BUILD_DEBUG_INTERP EQUAL 1)
   set (WAMR_BUILD_SIMD 0)
 endif ()
 
-if (WAMR_BUILD_LIBC_WASI EQUAL 1)
-  set (CMAKE_C_STANDARD 11)
-  if (MSVC)
-    add_compile_options(/experimental:c11atomics)
-  endif()
-else()
-  set (CMAKE_C_STANDARD 99)
-endif()
-
 set (WAMR_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../..)
 
 include (${WAMR_ROOT_DIR}/build-scripts/runtime_lib.cmake)
@@ -153,9 +147,3 @@ target_link_libraries (libiwasm ${LLVM_AVAILABLE_LIBS} ${UV_A_LIBS})
 if (MINGW)
   target_link_libraries (libiwasm ws2_32)
 endif ()
-
-if (WIN32)
-  target_link_libraries(libiwasm ntdll)
-
-  target_link_libraries(iwasm ntdll)  
-endif()
