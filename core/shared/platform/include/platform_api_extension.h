@@ -7,7 +7,6 @@
 #define PLATFORM_API_EXTENSION_H
 
 #include "platform_common.h"
-#include "platform_wasi.h"
 /**
  * The related data structures should be defined
  * in platform_internal.h
@@ -238,56 +237,6 @@ os_cond_signal(korp_cond *cond);
  */
 int
 os_cond_broadcast(korp_cond *cond);
-
-/**
- * Initialize readwrite lock object
- *
- * @param cond [OUTPUT] pointer to a lock object variable
- *
- * @return 0 if success
- */
-int
-os_rwlock_init(korp_rwlock *lock);
-
-/**
- * Acquire the read lock
- *
- * @param lock lock variable
- *
- * @return 0 if success
- */
-int
-os_rwlock_rdlock(korp_rwlock *lock);
-
-/**
- * Acquire the write lock
- *
- * @param lock lock variable
- *
- * @return 0 if success
- */
-int
-os_rwlock_wrlock(korp_rwlock *lock);
-
-/**
- * Unlocks the lock object
- *
- * @param lock lock variable
- *
- * @return 0 if success
- */
-int
-os_rwlock_unlock(korp_rwlock *lock);
-
-/**
- * Destroy a lock object
- *
- * @param lock lock variable
- *
- * @return 0 if success
- */
-int
-os_rwlock_destroy(korp_rwlock *lock);
 
 /**
  * Creates a new POSIX-like semaphore or opens an existing
