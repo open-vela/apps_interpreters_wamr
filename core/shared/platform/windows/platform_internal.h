@@ -25,10 +25,12 @@
 #include <stdint.h>
 #include <malloc.h>
 #include <process.h>
+#include <winapifamily.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
 #include <basetsd.h>
+#include <signal.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -57,6 +59,11 @@ typedef void *korp_tid;
 typedef void *korp_mutex;
 typedef void *korp_sem;
 
+typedef struct {
+    SRWLOCK lock;
+    bool exclusive;
+} korp_rwlock;
+
 /**
  * Create the mutex when os_mutex_lock is called, and no need to
  * CloseHandle() for the static lock's lifetime, since
@@ -75,8 +82,6 @@ typedef struct korp_cond {
     os_thread_wait_list thread_wait_list;
     struct os_thread_wait_node *thread_wait_list_end;
 } korp_cond;
-
-#define bh_socket_t SOCKET
 
 unsigned
 os_getpagesize();
@@ -130,6 +135,57 @@ void
 bh_atomic_thread_fence(int mem_order);
 
 #define os_atomic_thread_fence bh_atomic_thread_fence
+
+typedef enum windows_handle_type {
+    windows_handle_type_socket,
+    windows_handle_type_file
+} windows_handle_type;
+
+typedef enum windows_access_mode {
+    windows_access_mode_read = 1 << 0,
+    windows_access_mode_write = 1 << 1
+} windows_access_mode;
+
+// These enum values are defined to be the same as the corresponding WASI
+// fdflags so they can be used interchangeably.
+typedef enum windows_fdflags {
+    windows_fdflags_append = 1 << 0,
+    windows_fdflags_dsync = 1 << 1,
+    windows_fdflags_nonblock = 1 << 2,
+    windows_fdflags_rsync = 1 << 3,
+    windows_fdflags_sync = 1 << 4
+} windows_fdflags;
+
+typedef struct windows_handle {
+    windows_handle_type type;
+    windows_fdflags fdflags;
+    windows_access_mode access_mode;
+    union {
+        HANDLE handle;
+        SOCKET socket;
+    } raw;
+} windows_handle;
+
+typedef struct windows_dir_stream {
+    // Enough space for the wide filename and the info struct itself
+    char info_buf[PATH_MAX * sizeof(wchar_t) + sizeof(FILE_ID_BOTH_DIR_INFO)];
+    char current_entry_name[PATH_MAX];
+    // An offset into info_buf to read the next entry from
+    DWORD cursor;
+    int cookie;
+    windows_handle *handle;
+} windows_dir_stream;
+
+typedef windows_handle *os_file_handle;
+typedef windows_dir_stream *os_dir_stream;
+
+#if WASM_ENABLE_UVWASI != 1
+typedef HANDLE os_raw_file_handle;
+#else
+typedef uint32_t os_raw_file_handle;
+#endif
+
+#define bh_socket_t windows_handle *
 
 #ifdef __cplusplus
 }
