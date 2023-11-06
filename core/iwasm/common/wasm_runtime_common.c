@@ -2492,18 +2492,10 @@ static const char *exception_msgs[] = {
     "out of bounds table access",     /* EXCE_OUT_OF_BOUNDS_TABLE_ACCESS */
     "wasm operand stack overflow",    /* EXCE_OPERAND_STACK_OVERFLOW */
     "failed to compile fast jit function", /* EXCE_FAILED_TO_COMPILE_FAST_JIT_FUNC */
-    /* GC related exceptions */
-    "null function object",           /* EXCE_NULL_FUNC_OBJ */
-    "null structure object",          /* EXCE_NULL_STRUCT_OBJ */
-    "null array object",              /* EXCE_NULL_ARRAY_OBJ */
-    "null i31 reference",             /* EXCE_NULL_I31_OBJ */
-    "null reference",                 /* EXCE_NULL_REFERENCE */
-    "create rtt type failed",         /* EXCE_FAILED_TO_CREATE_RTT_TYPE */
-    "create struct object failed",    /* EXCE_FAILED_TO_CREATE_STRUCT_OBJ */
-    "create array object failed",     /* EXCE_FAILED_TO_CREATE_ARRAY_OBJ */
-    "create externref object failed", /* EXCE_FAILED_TO_CREATE_EXTERNREF_OBJ */
-    "cast failure",                   /* EXCE_CAST_FAILURE */
-    "array index out of bounds",      /* EXCE_ARRAY_IDX_OOB */
+    "null GC object",                 /* EXCE_NULL_GC_REF */
+    "failed to cast GC object",       /* EXCE_TYPE_NONCASTABLE */
+    "GC array index out of bounds",   /* EXCE_ARRAY_OOB */
+    "failed to create GC object",     /* EXCE_FAILED_TO_CREATE_GC_OBJ */
     "",                               /* EXCE_ALREADY_THROWN */
 };
 /* clang-format on */
@@ -3063,83 +3055,8 @@ wasm_runtime_init_wasi(WASMModuleInstanceCommon *module_inst,
             goto fail;
         }
 
-        if (!fd_table_insert_existing(curfds, wasm_fd, raw_fd)
-            || !fd_prestats_insert(prestats, dir_list[i], wasm_fd)) {
-            if (error_buf)
-                snprintf(
-                    error_buf, error_buf_size,
-                    "error while pre-opening directory %s: insertion failed\n",
-                    dir_list[i]);
-            goto fail;
-        }
-    }
-
-    for (i = 0; i < map_dir_count; i++, wasm_fd++) {
-        char mapping_copy_buf[256];
-        char *mapping_copy = mapping_copy_buf;
-        char *map_mapped = NULL, *map_host = NULL;
-        const unsigned long max_len = strlen(map_dir_list[i]) * 2 + 3;
-
-        /* Allocation limit for runtime environments with reduced stack size */
-        if (max_len > 256) {
-            if (!(mapping_copy = wasm_runtime_malloc(max_len))) {
-                snprintf(error_buf, error_buf_size,
-                         "error while allocating for directory mapping\n");
-                goto fail;
-            }
-        }
-
-        bh_memcpy_s(mapping_copy, max_len, map_dir_list[i],
-                    (uint32)(strlen(map_dir_list[i]) + 1));
-        map_mapped = strtok(mapping_copy, "::");
-        map_host = strtok(NULL, "::");
-
-        if (!map_mapped || !map_host) {
-            if (error_buf)
-                snprintf(error_buf, error_buf_size,
-                         "error while pre-opening mapped directory: "
-                         "invalid map\n");
-            if (mapping_copy != mapping_copy_buf)
-                wasm_runtime_free(mapping_copy);
-            goto fail;
-        }
-
-        path = realpath(map_host, resolved_path);
-        if (!path) {
-            if (error_buf)
-                snprintf(error_buf, error_buf_size,
-                         "error while pre-opening mapped directory %s: %d\n",
-                         map_host, errno);
-            if (mapping_copy != mapping_copy_buf)
-                wasm_runtime_free(mapping_copy);
-            goto fail;
-        }
-
-        raw_fd = open(path, O_RDONLY | O_DIRECTORY, 0);
-        if (raw_fd == -1) {
-            if (error_buf)
-                snprintf(error_buf, error_buf_size,
-                         "error while pre-opening mapped directory %s: %d\n",
-                         map_host, errno);
-            if (mapping_copy != mapping_copy_buf)
-                wasm_runtime_free(mapping_copy);
-            goto fail;
-        }
-
-        if (!fd_table_insert_existing(curfds, wasm_fd, raw_fd)
-            || !fd_prestats_insert(prestats, map_mapped, wasm_fd)) {
-            if (error_buf)
-                snprintf(error_buf, error_buf_size,
-                         "error while pre-opening mapped directory %s: "
-                         "insertion failed\n",
-                         dir_list[i]);
-            if (mapping_copy != mapping_copy_buf)
-                wasm_runtime_free(mapping_copy);
-            goto fail;
-        }
-
-        if (mapping_copy != mapping_copy_buf)
-            wasm_runtime_free(mapping_copy);
+        fd_table_insert_existing(curfds, wasm_fd, raw_fd);
+        fd_prestats_insert(prestats, dir_list[i], wasm_fd);
     }
 
     /* addr_pool(textual) -> apool */
@@ -4616,12 +4533,10 @@ static V128FuncPtr invokeNative_V128 = (V128FuncPtr)(uintptr_t)invokeNative;
           || defined(BUILD_TARGET_RISCV64_LP64) */
 #endif /* end of defined(_WIN32) || defined(_WIN32_) */
 
-/*
- * ASAN is not designed to work with custom stack unwind or other low-level
- * things. Ignore a function that does some low-level magic. (e.g. walking
- * through the thread's stack bypassing the frame boundaries)
- */
-#if defined(__GNUC__) || defined(__clang__)
+/* ASAN is not designed to work with custom stack unwind or other low-level \
+ things. > Ignore a function that does some low-level magic. (e.g. walking \
+ through the thread's stack bypassing the frame boundaries) */
+#if defined(__GNUC__)
 __attribute__((no_sanitize_address))
 #endif
 bool
