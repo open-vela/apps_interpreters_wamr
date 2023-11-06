@@ -67,18 +67,10 @@ typedef enum WASMExceptionID {
     EXCE_OUT_OF_BOUNDS_TABLE_ACCESS,
     EXCE_OPERAND_STACK_OVERFLOW,
     EXCE_FAILED_TO_COMPILE_FAST_JIT_FUNC,
-    /* GC related exceptions */
-    EXCE_NULL_FUNC_OBJ,
-    EXCE_NULL_STRUCT_OBJ,
-    EXCE_NULL_ARRAY_OBJ,
-    EXCE_NULL_I31_OBJ,
-    EXCE_NULL_REFERENCE,
-    EXCE_FAILED_TO_CREATE_RTT_TYPE,
-    EXCE_FAILED_TO_CREATE_STRUCT_OBJ,
-    EXCE_FAILED_TO_CREATE_ARRAY_OBJ,
-    EXCE_FAILED_TO_CREATE_EXTERNREF_OBJ,
-    EXCE_CAST_FAILURE,
-    EXCE_ARRAY_IDX_OOB,
+    EXCE_NULL_GC_REF,
+    EXCE_TYPE_NONCASTABLE,
+    EXCE_ARRAY_OOB,
+    EXCE_FAILED_TO_CREATE_GC_OBJ,
     EXCE_ALREADY_THROWN,
     EXCE_NUM,
 } WASMExceptionID;
@@ -91,11 +83,8 @@ typedef union {
 struct WASMMemoryInstance {
     /* Module type */
     uint32 module_type;
-
-    bool is_shared_memory;
-
     /* Shared memory flag */
-    bh_atomic_16_t ref_count; /* 0: non-shared, > 0: reference count */
+    bh_atomic_32_t ref_count; /* 0: non-shared, > 0: reference count */
 
     /* Number bytes per page */
     uint32 num_bytes_per_page;

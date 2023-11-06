@@ -32,7 +32,6 @@ function help()
     echo "-F set the firmware path used by qemu"
     echo "-C enable code coverage collect"
     echo "-j set the platform to test"
-    echo "-T set sanitizer to use in tests(ubsan|tsan|asan)"
 }
 
 OPT_PARSED=""
@@ -60,7 +59,7 @@ QEMU_FIRMWARE=""
 # prod/testsuite-all branch
 WASI_TESTSUITE_COMMIT="ee807fc551978490bf1c277059aabfa1e589a6c2"
 
-while getopts ":s:cabgvt:m:MCpSXxwPGQF:j:T:" opt
+while getopts ":s:cabgvt:m:MCpSXxwPGQF:j:" opt
 do
     OPT_PARSED="TRUE"
     case $opt in
@@ -166,14 +165,9 @@ do
         echo "test platform " ${OPTARG}
         PLATFORM=${OPTARG}
         ;;
-        T)
-        echo "sanitizer is " ${OPTARG}
-        WAMR_BUILD_SANITIZER=${OPTARG}
-        ;;
         ?)
         help
-        exit 1
-        ;;
+        exit 1;;
     esac
 done
 
@@ -392,7 +386,7 @@ function spec_test()
         git apply ../../spec-test-script/simd_ignore_cases.patch
     fi
     if [[ ${ENABLE_MULTI_MODULE} == 1 && $1 == 'aot'  ]]; then
-        git apply ../../spec-test-script/multi_module_aot_ignore_cases.patch
+        git apply ../../spec-test-script/muti_module_aot_ignore_cases.patch
     fi
 
     # udpate thread cases
@@ -559,7 +553,7 @@ function wasi_certification_test()
     cd wasi-testsuite
     git reset --hard ${WASI_TESTSUITE_COMMIT}
 
-    TSAN_OPTIONS=${TSAN_OPTIONS} bash ../../wasi-test-script/run_wasi_tests.sh $1 $TARGET \
+    bash ../../wasi-test-script/run_wasi_tests.sh $1 $TARGET \
         | tee -a ${REPORT_DIR}/wasi_test_report.txt
     ret=${PIPESTATUS[0]}
 
