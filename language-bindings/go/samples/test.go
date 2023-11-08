@@ -6,7 +6,7 @@
 package main
 
 import (
-    "github.com/bytecodealliance/wasm-micro-runtime/language-bindings/go/wamr"
+    "gitlab.alipay-inc.com/TNT_Runtime/ant-runtime/bindings/go/wamr"
     "fmt"
 )
 

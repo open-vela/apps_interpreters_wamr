@@ -298,14 +298,9 @@ wasm_runtime_validate_app_addr(WASMModuleInstanceCommon *module_inst_comm,
         goto fail;
     }
 
-    SHARED_MEMORY_LOCK(memory_inst);
-
     if (app_offset + size <= memory_inst->memory_data_size) {
-        SHARED_MEMORY_UNLOCK(memory_inst);
         return true;
     }
-
-    SHARED_MEMORY_UNLOCK(memory_inst);
 
 fail:
     wasm_set_exception(module_inst, "out of bounds memory access");
@@ -369,15 +364,10 @@ wasm_runtime_validate_native_addr(WASMModuleInstanceCommon *module_inst_comm,
         goto fail;
     }
 
-    SHARED_MEMORY_LOCK(memory_inst);
-
     if (memory_inst->memory_data <= addr
         && addr + size <= memory_inst->memory_data_end) {
-        SHARED_MEMORY_UNLOCK(memory_inst);
         return true;
     }
-
-    SHARED_MEMORY_UNLOCK(memory_inst);
 
 fail:
     wasm_set_exception(module_inst, "out of bounds memory access");
@@ -403,24 +393,20 @@ wasm_runtime_addr_app_to_native(WASMModuleInstanceCommon *module_inst_comm,
         return NULL;
     }
 
-    SHARED_MEMORY_LOCK(memory_inst);
-
     addr = memory_inst->memory_data + app_offset;
 
     if (bounds_checks) {
         if (memory_inst->memory_data <= addr
             && addr < memory_inst->memory_data_end) {
-            SHARED_MEMORY_UNLOCK(memory_inst);
+
             return addr;
         }
     }
     /* If bounds checks is disabled, return the address directly */
     else if (app_offset != 0) {
-        SHARED_MEMORY_UNLOCK(memory_inst);
         return addr;
     }
 
-    SHARED_MEMORY_UNLOCK(memory_inst);
     return NULL;
 }
 
@@ -432,7 +418,6 @@ wasm_runtime_addr_native_to_app(WASMModuleInstanceCommon *module_inst_comm,
     WASMMemoryInstance *memory_inst;
     uint8 *addr = (uint8 *)native_ptr;
     bool bounds_checks;
-    uint32 ret;
 
     bh_assert(module_inst_comm->module_type == Wasm_Module_Bytecode
               || module_inst_comm->module_type == Wasm_Module_AoT);
@@ -444,24 +429,16 @@ wasm_runtime_addr_native_to_app(WASMModuleInstanceCommon *module_inst_comm,
         return 0;
     }
 
-    SHARED_MEMORY_LOCK(memory_inst);
-
     if (bounds_checks) {
         if (memory_inst->memory_data <= addr
-            && addr < memory_inst->memory_data_end) {
-            ret = (uint32)(addr - memory_inst->memory_data);
-            SHARED_MEMORY_UNLOCK(memory_inst);
-            return ret;
-        }
+            && addr < memory_inst->memory_data_end)
+            return (uint32)(addr - memory_inst->memory_data);
     }
     /* If bounds checks is disabled, return the offset directly */
     else if (addr != NULL) {
-        ret = (uint32)(addr - memory_inst->memory_data);
-        SHARED_MEMORY_UNLOCK(memory_inst);
-        return ret;
+        return (uint32)(addr - memory_inst->memory_data);
     }
 
-    SHARED_MEMORY_UNLOCK(memory_inst);
     return 0;
 }
 
@@ -482,8 +459,6 @@ wasm_runtime_get_app_addr_range(WASMModuleInstanceCommon *module_inst_comm,
         return false;
     }
 
-    SHARED_MEMORY_LOCK(memory_inst);
-
     memory_data_size = memory_inst->memory_data_size;
 
     if (app_offset < memory_data_size) {
@@ -491,11 +466,9 @@ wasm_runtime_get_app_addr_range(WASMModuleInstanceCommon *module_inst_comm,
             *p_app_start_offset = 0;
         if (p_app_end_offset)
             *p_app_end_offset = memory_data_size;
-        SHARED_MEMORY_UNLOCK(memory_inst);
         return true;
     }
 
-    SHARED_MEMORY_UNLOCK(memory_inst);
     return false;
 }
 
@@ -517,19 +490,15 @@ wasm_runtime_get_native_addr_range(WASMModuleInstanceCommon *module_inst_comm,
         return false;
     }
 
-    SHARED_MEMORY_LOCK(memory_inst);
-
     if (memory_inst->memory_data <= addr
         && addr < memory_inst->memory_data_end) {
         if (p_native_start_addr)
             *p_native_start_addr = memory_inst->memory_data;
         if (p_native_end_addr)
             *p_native_end_addr = memory_inst->memory_data_end;
-        SHARED_MEMORY_UNLOCK(memory_inst);
         return true;
     }
 
-    SHARED_MEMORY_UNLOCK(memory_inst);
     return false;
 }
 
@@ -543,8 +512,7 @@ wasm_check_app_addr_and_convert(WASMModuleInstance *module_inst, bool is_str,
     bool bounds_checks;
 
     if (!memory_inst) {
-        wasm_set_exception(module_inst, "out of bounds memory access");
-        return false;
+        goto fail;
     }
 
     native_addr = memory_inst->memory_data + app_buf_addr;
@@ -561,8 +529,6 @@ wasm_check_app_addr_and_convert(WASMModuleInstance *module_inst, bool is_str,
     /* No need to check the app_offset and buf_size if memory access
        boundary check with hardware trap is enabled */
 #ifndef OS_ENABLE_HW_BOUND_CHECK
-    SHARED_MEMORY_LOCK(memory_inst);
-
     if (app_buf_addr >= memory_inst->memory_data_size) {
         goto fail;
     }
@@ -583,20 +549,14 @@ wasm_check_app_addr_and_convert(WASMModuleInstance *module_inst, bool is_str,
         if (str == str_end)
             goto fail;
     }
-
-    SHARED_MEMORY_UNLOCK(memory_inst);
 #endif
 
 success:
     *p_native_addr = (void *)native_addr;
     return true;
-
-#ifndef OS_ENABLE_HW_BOUND_CHECK
 fail:
-    SHARED_MEMORY_UNLOCK(memory_inst);
     wasm_set_exception(module_inst, "out of bounds memory access");
     return false;
-#endif
 }
 
 WASMMemoryInstance *
@@ -606,27 +566,6 @@ wasm_get_default_memory(WASMModuleInstance *module_inst)
         return module_inst->memories[0];
     else
         return NULL;
-}
-
-void
-wasm_runtime_set_mem_bound_check_bytes(WASMMemoryInstance *memory,
-                                       uint64 memory_data_size)
-{
-#if WASM_ENABLE_FAST_JIT != 0 || WASM_ENABLE_JIT != 0 || WASM_ENABLE_AOT != 0
-#if UINTPTR_MAX == UINT64_MAX
-    memory->mem_bound_check_1byte.u64 = memory_data_size - 1;
-    memory->mem_bound_check_2bytes.u64 = memory_data_size - 2;
-    memory->mem_bound_check_4bytes.u64 = memory_data_size - 4;
-    memory->mem_bound_check_8bytes.u64 = memory_data_size - 8;
-    memory->mem_bound_check_16bytes.u64 = memory_data_size - 16;
-#else
-    memory->mem_bound_check_1byte.u32[0] = (uint32)memory_data_size - 1;
-    memory->mem_bound_check_2bytes.u32[0] = (uint32)memory_data_size - 2;
-    memory->mem_bound_check_4bytes.u32[0] = (uint32)memory_data_size - 4;
-    memory->mem_bound_check_8bytes.u32[0] = (uint32)memory_data_size - 8;
-    memory->mem_bound_check_16bytes.u32[0] = (uint32)memory_data_size - 16;
-#endif
-#endif
 }
 
 #ifndef OS_ENABLE_HW_BOUND_CHECK
@@ -686,10 +625,9 @@ wasm_enlarge_memory_internal(WASMModuleInstance *module, uint32 inc_page_count)
         memory->num_bytes_per_page = num_bytes_per_page;
         memory->cur_page_count = total_page_count;
         memory->max_page_count = max_page_count;
-        memory->memory_data_size = (uint32)total_size_new;
-        memory->memory_data_end = memory->memory_data + (uint32)total_size_new;
-
-        wasm_runtime_set_mem_bound_check_bytes(memory, total_size_new);
+        /* No need to update memory->memory_data_size as it is
+           initialized with the maximum memory data size for
+           shared memory */
         return true;
     }
 #endif
@@ -741,7 +679,21 @@ wasm_enlarge_memory_internal(WASMModuleInstance *module, uint32 inc_page_count)
     memory->memory_data = memory_data_new;
     memory->memory_data_end = memory_data_new + (uint32)total_size_new;
 
-    wasm_runtime_set_mem_bound_check_bytes(memory, total_size_new);
+#if WASM_ENABLE_FAST_JIT != 0 || WASM_ENABLE_JIT != 0 || WASM_ENABLE_AOT != 0
+#if UINTPTR_MAX == UINT64_MAX
+    memory->mem_bound_check_1byte.u64 = total_size_new - 1;
+    memory->mem_bound_check_2bytes.u64 = total_size_new - 2;
+    memory->mem_bound_check_4bytes.u64 = total_size_new - 4;
+    memory->mem_bound_check_8bytes.u64 = total_size_new - 8;
+    memory->mem_bound_check_16bytes.u64 = total_size_new - 16;
+#else
+    memory->mem_bound_check_1byte.u32[0] = (uint32)total_size_new - 1;
+    memory->mem_bound_check_2bytes.u32[0] = (uint32)total_size_new - 2;
+    memory->mem_bound_check_4bytes.u32[0] = (uint32)total_size_new - 4;
+    memory->mem_bound_check_8bytes.u32[0] = (uint32)total_size_new - 8;
+    memory->mem_bound_check_16bytes.u32[0] = (uint32)total_size_new - 16;
+#endif
+#endif
 
 #if defined(os_writegsbase)
     /* write base addr of linear memory to GS segment register */
@@ -847,7 +799,13 @@ wasm_enlarge_memory_internal(WASMModuleInstance *module, uint32 inc_page_count)
     memory->memory_data_size = (uint32)total_size_new;
     memory->memory_data_end = memory->memory_data + (uint32)total_size_new;
 
-    wasm_runtime_set_mem_bound_check_bytes(memory, total_size_new);
+#if WASM_ENABLE_FAST_JIT != 0 || WASM_ENABLE_JIT != 0 || WASM_ENABLE_AOT != 0
+    memory->mem_bound_check_1byte.u64 = total_size_new - 1;
+    memory->mem_bound_check_2bytes.u64 = total_size_new - 2;
+    memory->mem_bound_check_4bytes.u64 = total_size_new - 4;
+    memory->mem_bound_check_8bytes.u64 = total_size_new - 8;
+    memory->mem_bound_check_16bytes.u64 = total_size_new - 16;
+#endif
 
 return_func:
     if (!ret && enlarge_memory_error_cb) {
