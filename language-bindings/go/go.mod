@@ -1,4 +1,4 @@
-module github.com/bytecodealliance/wasm-micro-runtime/language-bindings/go
+module gitlab.alipay-inc.com/TNT_Runtime/ant-runtime/bindings/go
 
 go 1.15
 
