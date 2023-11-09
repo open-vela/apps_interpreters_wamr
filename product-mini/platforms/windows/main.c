@@ -10,10 +10,6 @@
 #include "bh_read_file.h"
 #include "wasm_export.h"
 
-#if WASM_ENABLE_LIBC_WASI != 0
-#include "../common/libc_wasi.c"
-#endif
-
 static int app_argc;
 static char **app_argv;
 
@@ -52,7 +48,12 @@ print_help()
     printf("  --repl                 Start a very simple REPL (read-eval-print-loop) mode\n"
            "                         that runs commands in the form of `FUNC ARG...`\n");
 #if WASM_ENABLE_LIBC_WASI != 0
-    libc_wasi_print_help();
+    printf("  --env=<env>            Pass wasi environment variables with \"key=value\"\n");
+    printf("                         to the program, for example:\n");
+    printf("                           --env=\"key1=value1\" --env=\"key2=value2\"\n");
+    printf("  --dir=<dir>            Grant wasi access to the given host directories\n");
+    printf("                         to the program, for example:\n");
+    printf("                           --dir=<dir1> --dir=<dir2>\n");
 #endif
 #if WASM_ENABLE_MULTI_MODULE != 0
     printf("  --module-path=<path>   Indicate a module search path. default is current\n"
@@ -140,8 +141,7 @@ app_instance_repl(wasm_module_inst_t module_inst)
     char *cmd;
     size_t n;
 
-    while ((printf("webassembly> "), fflush(stdout),
-            cmd = fgets(buffer, sizeof(buffer), stdin))
+    while ((printf("webassembly> "), cmd = fgets(buffer, sizeof(buffer), stdin))
            != NULL) {
         bh_assert(cmd);
         n = strlen(cmd);
@@ -161,11 +161,8 @@ app_instance_repl(wasm_module_inst_t module_inst)
             break;
         }
         if (app_argc != 0) {
-            const char *exception;
             wasm_application_execute_func(module_inst, app_argv[0],
                                           app_argc - 1, app_argv + 1);
-            if ((exception = wasm_runtime_get_exception(module_inst)))
-                printf("%s\n", exception);
         }
         free(app_argv);
     }
@@ -173,9 +170,58 @@ app_instance_repl(wasm_module_inst_t module_inst)
     return NULL;
 }
 
+#if WASM_ENABLE_LIBC_WASI != 0
+static bool
+validate_env_str(char *env)
+{
+    char *p = env;
+    int key_len = 0;
+
+    while (*p != '\0' && *p != '=') {
+        key_len++;
+        p++;
+    }
+
+    if (*p != '=' || key_len == 0)
+        return false;
+
+    return true;
+}
+#endif
+
 #if WASM_ENABLE_GLOBAL_HEAP_POOL != 0
 static char global_heap_buf[WASM_GLOBAL_HEAP_SIZE] = { 0 };
+#else
+static void *
+malloc_func(
+#if WASM_MEM_ALLOC_WITH_USER_DATA != 0
+    void *user_data,
 #endif
+    unsigned int size)
+{
+    return malloc(size);
+}
+
+static void *
+realloc_func(
+#if WASM_MEM_ALLOC_WITH_USER_DATA != 0
+    void *user_data,
+#endif
+    void *ptr, unsigned int size)
+{
+    return realloc(ptr, size);
+}
+
+static void
+free_func(
+#if WASM_MEM_ALLOC_WITH_USER_DATA != 0
+    void *user_data,
+#endif
+    void *ptr)
+{
+    free(ptr);
+}
+#endif /* end of WASM_ENABLE_GLOBAL_HEAP_POOL */
 
 #if WASM_ENABLE_MULTI_MODULE != 0
 static char *
@@ -203,7 +249,7 @@ module_reader_callback(package_type_t module_type, const char *module_name,
     const char *format = "%s/%s%s";
     int sz = strlen(module_search_path) + strlen("/") + strlen(module_name)
              + strlen(file_format) + 1;
-    char *wasm_file_name = BH_MALLOC(sz);
+    char *wasm_file_name = wasm_runtime_malloc(sz);
     if (!wasm_file_name) {
         return false;
     }
@@ -256,15 +302,14 @@ main(int argc, char *argv[])
     bool is_repl_mode = false;
     bool is_xip_file = false;
 #if WASM_ENABLE_LIBC_WASI != 0
-    libc_wasi_parse_context_t wasi_parse_ctx;
+    const char *dir_list[8] = { NULL };
+    uint32 dir_list_size = 0;
+    const char *env_list[8] = { NULL };
+    uint32 env_list_size = 0;
 #endif
 #if WASM_ENABLE_DEBUG_INTERP != 0
     char *ip_addr = NULL;
     int instance_port = 0;
-#endif
-
-#if WASM_ENABLE_LIBC_WASI != 0
-    memset(&wasi_parse_ctx, 0, sizeof(wasi_parse_ctx));
 #endif
 
     /* Process options. */
@@ -348,6 +393,38 @@ main(int argc, char *argv[])
             }
         }
 #endif
+#if WASM_ENABLE_LIBC_WASI != 0
+        else if (!strncmp(argv[0], "--dir=", 6)) {
+            if (argv[0][6] == '\0')
+                return print_help();
+            if (dir_list_size >= sizeof(dir_list) / sizeof(char *)) {
+                printf("Only allow max dir number %d\n",
+                       (int)(sizeof(dir_list) / sizeof(char *)));
+                return 1;
+            }
+            dir_list[dir_list_size++] = argv[0] + 6;
+        }
+        else if (!strncmp(argv[0], "--env=", 6)) {
+            char *tmp_env;
+
+            if (argv[0][6] == '\0')
+                return print_help();
+            if (env_list_size >= sizeof(env_list) / sizeof(char *)) {
+                printf("Only allow max env number %d\n",
+                       (int)(sizeof(env_list) / sizeof(char *)));
+                return 1;
+            }
+            tmp_env = argv[0] + 6;
+            if (validate_env_str(tmp_env))
+                env_list[env_list_size++] = tmp_env;
+            else {
+                printf("Wasm parse env string failed: expect \"key=value\", "
+                       "got \"%s\"\n",
+                       tmp_env);
+                return print_help();
+            }
+        }
+#endif /* WASM_ENABLE_LIBC_WASI */
 #if WASM_ENABLE_MULTI_MODULE != 0
         else if (!strncmp(argv[0], MODULE_PATH, strlen(MODULE_PATH))) {
             module_search_path = handle_module_path(argv[0]);
@@ -383,22 +460,8 @@ main(int argc, char *argv[])
                    patch);
             return 0;
         }
-        else {
-#if WASM_ENABLE_LIBC_WASI != 0
-            libc_wasi_parse_result_t result =
-                libc_wasi_parse(argv[0], &wasi_parse_ctx);
-            switch (result) {
-                case LIBC_WASI_PARSE_RESULT_OK:
-                    continue;
-                case LIBC_WASI_PARSE_RESULT_NEED_HELP:
-                    return print_help();
-                case LIBC_WASI_PARSE_RESULT_BAD_PARAM:
-                    return 1;
-            }
-#else
+        else
             return print_help();
-#endif
-        }
     }
 
     if (argc == 0)
@@ -417,9 +480,13 @@ main(int argc, char *argv[])
     init_args.mem_alloc_option.pool.heap_size = sizeof(global_heap_buf);
 #else
     init_args.mem_alloc_type = Alloc_With_Allocator;
-    init_args.mem_alloc_option.allocator.malloc_func = malloc;
-    init_args.mem_alloc_option.allocator.realloc_func = realloc;
-    init_args.mem_alloc_option.allocator.free_func = free;
+#if WASM_MEM_ALLOC_WITH_USER_DATA != 0
+    /* Set user data for the allocator is needed */
+    /* init_args.mem_alloc_option.allocator.user_data = user_data; */
+#endif
+    init_args.mem_alloc_option.allocator.malloc_func = malloc_func;
+    init_args.mem_alloc_option.allocator.realloc_func = realloc_func;
+    init_args.mem_alloc_option.allocator.free_func = free_func;
 #endif
 
 #if WASM_ENABLE_JIT != 0
@@ -481,7 +548,8 @@ main(int argc, char *argv[])
     }
 
 #if WASM_ENABLE_LIBC_WASI != 0
-    libc_wasi_init(wasm_module, argc, argv, &wasi_parse_ctx);
+    wasm_runtime_set_wasi_args(wasm_module, dir_list, dir_list_size, NULL, 0,
+                               env_list, env_list_size, argv, argc);
 #endif
 
     /* instantiate the module */
