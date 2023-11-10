@@ -49,7 +49,7 @@
 /* Mutex that uses the lock annotations. */
 
 struct LOCKABLE mutex {
-    korp_mutex object;
+    pthread_mutex_t object;
 };
 
 /* clang-format off */
@@ -60,71 +60,69 @@ struct LOCKABLE mutex {
 static inline bool
 mutex_init(struct mutex *lock) REQUIRES_UNLOCKED(*lock)
 {
-    return os_mutex_init(&lock->object) == BHT_OK ? true : false;
+    return pthread_mutex_init(&lock->object, NULL) == 0 ? true : false;
 }
 
 static inline void
 mutex_destroy(struct mutex *lock) REQUIRES_UNLOCKED(*lock)
 {
-    os_mutex_destroy(&lock->object);
+    pthread_mutex_destroy(&lock->object);
 }
 
 static inline void
 mutex_lock(struct mutex *lock) LOCKS_EXCLUSIVE(*lock) NO_LOCK_ANALYSIS
 {
-    os_mutex_lock(&lock->object);
+    pthread_mutex_lock(&lock->object);
 }
 
 static inline void
 mutex_unlock(struct mutex *lock) UNLOCKS(*lock) NO_LOCK_ANALYSIS
 {
-    os_mutex_unlock(&lock->object);
+    pthread_mutex_unlock(&lock->object);
 }
 
 /* Read-write lock that uses the lock annotations. */
 
 struct LOCKABLE rwlock {
-    korp_rwlock object;
+    pthread_rwlock_t object;
 };
 
 static inline bool
 rwlock_init(struct rwlock *lock) REQUIRES_UNLOCKED(*lock)
 {
-    return os_rwlock_init(&lock->object) == 0 ? true : false;
+    return pthread_rwlock_init(&lock->object, NULL) == 0 ? true : false;
 }
 
 static inline void
 rwlock_rdlock(struct rwlock *lock) LOCKS_SHARED(*lock) NO_LOCK_ANALYSIS
 {
-    os_rwlock_rdlock(&lock->object);
+    pthread_rwlock_rdlock(&lock->object);
 }
 
 static inline void
 rwlock_wrlock(struct rwlock *lock) LOCKS_EXCLUSIVE(*lock) NO_LOCK_ANALYSIS
 {
-    os_rwlock_wrlock(&lock->object);
+    pthread_rwlock_wrlock(&lock->object);
 }
 
 static inline void
 rwlock_unlock(struct rwlock *lock) UNLOCKS(*lock) NO_LOCK_ANALYSIS
 {
-    os_rwlock_unlock(&lock->object);
+    pthread_rwlock_unlock(&lock->object);
 }
 
 static inline void
 rwlock_destroy(struct rwlock *lock) UNLOCKS(*lock) NO_LOCK_ANALYSIS
 {
-    os_rwlock_destroy(&lock->object);
+    pthread_rwlock_destroy(&lock->object);
 }
 
 /* Condition variable that uses the lock annotations. */
 
 struct LOCKABLE cond {
-    korp_cond object;
-
-#if !CONFIG_HAS_CLOCK_NANOSLEEP               \
-    && (!CONFIG_HAS_PTHREAD_CONDATTR_SETCLOCK \
-        || !CONFIG_HAS_PTHREAD_COND_TIMEDWAIT_RELATIVE_NP)
+    pthread_cond_t object;
+#if !CONFIG_HAS_PTHREAD_CONDATTR_SETCLOCK \
+    || !CONFIG_HAS_PTHREAD_COND_TIMEDWAIT_RELATIVE_NP
     clockid_t clock;
 #endif
 };
@@ -149,49 +147,43 @@ cond_init_monotonic(struct cond *cond)
 fail:
     pthread_condattr_destroy(&attr);
 #else
-    if (os_cond_init(&cond->object) != 0)
+    if (pthread_cond_init(&cond->object, NULL) != 0)
         return false;
     ret = true;
 #endif
 
-#if !CONFIG_HAS_CLOCK_NANOSLEEP               \
-    && (!CONFIG_HAS_PTHREAD_CONDATTR_SETCLOCK \
-        || !CONFIG_HAS_PTHREAD_COND_TIMEDWAIT_RELATIVE_NP)
+#if !CONFIG_HAS_PTHREAD_CONDATTR_SETCLOCK \
+    || !CONFIG_HAS_PTHREAD_COND_TIMEDWAIT_RELATIVE_NP
     cond->clock = CLOCK_MONOTONIC;
 #endif
-
     return ret;
 }
 
 static inline bool
 cond_init_realtime(struct cond *cond)
 {
-    if (os_cond_init(&cond->object) != 0)
+    if (pthread_cond_init(&cond->object, NULL) != 0)
         return false;
-
-#if !CONFIG_HAS_CLOCK_NANOSLEEP               \
-    && (!CONFIG_HAS_PTHREAD_CONDATTR_SETCLOCK \
-        || !CONFIG_HAS_PTHREAD_COND_TIMEDWAIT_RELATIVE_NP)
+#if !CONFIG_HAS_PTHREAD_CONDATTR_SETCLOCK \
+    || !CONFIG_HAS_PTHREAD_COND_TIMEDWAIT_RELATIVE_NP
     cond->clock = CLOCK_REALTIME;
 #endif
-
     return true;
 }
 
 static inline void
 cond_destroy(struct cond *cond)
 {
-    os_cond_destroy(&cond->object);
+    pthread_cond_destroy(&cond->object);
 }
 
 static inline void
 cond_signal(struct cond *cond)
 {
-    os_cond_signal(&cond->object);
+    pthread_cond_signal(&cond->object);
 }
 
 #if !CONFIG_HAS_CLOCK_NANOSLEEP
-
 static inline bool
 cond_timedwait(struct cond *cond, struct mutex *lock, uint64_t timeout,
                bool abstime) REQUIRES_EXCLUSIVE(*lock) NO_LOCK_ANALYSIS
@@ -267,7 +259,7 @@ static inline void
 cond_wait(struct cond *cond, struct mutex *lock)
     REQUIRES_EXCLUSIVE(*lock) NO_LOCK_ANALYSIS
 {
-    os_cond_wait(&cond->object, &lock->object);
+    pthread_cond_wait(&cond->object, &lock->object);
 }
 
 #endif
