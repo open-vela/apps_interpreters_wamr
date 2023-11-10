@@ -38,8 +38,8 @@ typedef struct WASMExecEnv {
     /* Next thread's exec env of a WASM module instance. */
     struct WASMExecEnv *next;
 
-    /* Previous thread's exec env of a WASM module instance. */
-    struct WASMExecEnv *prev;
+    /* Current interpreter/AOT frame of current thread */
+    struct WASMInterpFrame *cur_frame;
 
     /* Note: field module_inst, argv_buf, native_stack_boundary,
        suspend_flags, aux_stack_boundary, aux_stack_bottom, and
@@ -116,6 +116,11 @@ typedef struct WASMExecEnv {
     bool thread_is_detached;
 #endif
 
+#if WASM_ENABLE_GC != 0
+    /* Current local object reference variable */
+    struct WASMLocalObjectRef *cur_local_object_ref;
+#endif
+
 #if WASM_ENABLE_DEBUG_INTERP != 0
     WASMCurrentEnvStatus *current_status;
 #endif
@@ -124,9 +129,6 @@ typedef struct WASMExecEnv {
     void *attachment;
 
     void *user_data;
-
-    /* Current interpreter frame of current thread */
-    struct WASMInterpFrame *cur_frame;
 
     /* The native thread handle of current thread */
     korp_tid handle;
@@ -289,10 +291,6 @@ wasm_exec_env_get_module_inst(WASMExecEnv *exec_env);
 
 void
 wasm_exec_env_set_module_inst(
-    WASMExecEnv *exec_env, struct WASMModuleInstanceCommon *const module_inst);
-
-void
-wasm_exec_env_restore_module_inst(
     WASMExecEnv *exec_env, struct WASMModuleInstanceCommon *const module_inst);
 
 void

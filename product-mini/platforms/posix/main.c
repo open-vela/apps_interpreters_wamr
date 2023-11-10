@@ -14,10 +14,6 @@
 #include "bh_read_file.h"
 #include "wasm_export.h"
 
-#if WASM_ENABLE_LIBC_WASI != 0
-#include "../common/libc_wasi.c"
-#endif
-
 #if BH_HAS_DLFCN
 #include <dlfcn.h>
 #endif
@@ -55,6 +51,10 @@ print_help()
     printf("  --jit-codecache-size=n   Set fast jit maximum code cache size in bytes,\n");
     printf("                           default is %u KB\n", FAST_JIT_DEFAULT_CODE_CACHE_SIZE / 1024);
 #endif
+#if WASM_ENABLE_GC != 0
+    printf("  --gc-heap-size=n         Set maximum gc heap size in bytes,\n");
+    printf("                           default is %u KB\n", GC_HEAP_SIZE_DEFAULT / 1024);
+#endif
 #if WASM_ENABLE_JIT != 0
     printf("  --llvm-jit-size-level=n  Set LLVM JIT size level, default is 3\n");
     printf("  --llvm-jit-opt-level=n   Set LLVM JIT optimization level, default is 3\n");
@@ -73,7 +73,24 @@ print_help()
     printf("  --disable-bounds-checks  Disable bounds checks for memory accesses\n");
 #endif
 #if WASM_ENABLE_LIBC_WASI != 0
-    libc_wasi_print_help();
+    printf("  --env=<env>              Pass wasi environment variables with \"key=value\"\n");
+    printf("                           to the program, for example:\n");
+    printf("                             --env=\"key1=value1\" --env=\"key2=value2\"\n");
+    printf("  --dir=<dir>              Grant wasi access to the given host directories\n");
+    printf("                           to the program, for example:\n");
+    printf("                             --dir=<dir1> --dir=<dir2>\n");
+    printf("  --map-dir=<guest::host>  Grant wasi access to the given host directories\n");
+    printf("                           to the program at a specific guest path, for example:\n");
+    printf("                             --map-dir=<guest-path1::host-path1> --map-dir=<guest-path2::host-path2>\n");
+    printf("  --addr-pool=<addrs>      Grant wasi access to the given network addresses in\n");
+    printf("                           CIRD notation to the program, seperated with ',',\n");
+    printf("                           for example:\n");
+    printf("                             --addr-pool=1.2.3.4/15,2.3.4.5/16\n");
+    printf("  --allow-resolve=<domain> Allow the lookup of the specific domain name or domain\n");
+    printf("                           name suffixes using a wildcard, for example:\n");
+    printf("                           --allow-resolve=example.com # allow the lookup of the specific domain\n");
+    printf("                           --allow-resolve=*.example.com # allow the lookup of all subdomains\n");
+    printf("                           --allow-resolve=* # allow any lookup\n");
 #endif
 #if BH_HAS_DLFCN
     printf("  --native-lib=<lib>       Register native libraries to the WASM module, which\n");
@@ -194,11 +211,8 @@ app_instance_repl(wasm_module_inst_t module_inst)
             break;
         }
         if (app_argc != 0) {
-            const char *exception;
             wasm_application_execute_func(module_inst, app_argv[0],
                                           app_argc - 1, app_argv + 1);
-            if ((exception = wasm_runtime_get_exception(module_inst)))
-                printf("%s\n", exception);
         }
         free(app_argv);
     }
@@ -258,6 +272,25 @@ resolve_segue_flags(char *str_flags)
     return segue_flags;
 }
 #endif /* end of WASM_ENABLE_JIT != 0 */
+
+#if WASM_ENABLE_LIBC_WASI != 0
+static bool
+validate_env_str(char *env)
+{
+    char *p = env;
+    int key_len = 0;
+
+    while (*p != '\0' && *p != '=') {
+        key_len++;
+        p++;
+    }
+
+    if (*p != '=' || key_len == 0)
+        return false;
+
+    return true;
+}
+#endif
 
 #if BH_HAS_DLFCN
 struct native_lib {
@@ -556,6 +589,9 @@ main(int argc, char *argv[])
 #if WASM_ENABLE_FAST_JIT != 0
     uint32 jit_code_cache_size = FAST_JIT_DEFAULT_CODE_CACHE_SIZE;
 #endif
+#if WASM_ENABLE_GC != 0
+    uint32 gc_heap_size = GC_HEAP_SIZE_DEFAULT;
+#endif
 #if WASM_ENABLE_JIT != 0
     uint32 llvm_jit_size_level = 3;
     uint32 llvm_jit_opt_level = 3;
@@ -575,7 +611,16 @@ main(int argc, char *argv[])
     bool disable_bounds_checks = false;
 #endif
 #if WASM_ENABLE_LIBC_WASI != 0
-    libc_wasi_parse_context_t wasi_parse_ctx;
+    const char *dir_list[8] = { NULL };
+    uint32 dir_list_size = 0;
+    const char *map_dir_list[8] = { NULL };
+    uint32 map_dir_list_size = 0;
+    const char *env_list[8] = { NULL };
+    uint32 env_list_size = 0;
+    const char *addr_pool[8] = { NULL };
+    uint32 addr_pool_size = 0;
+    const char *ns_lookup_pool[8] = { NULL };
+    uint32 ns_lookup_pool_size = 0;
 #endif
 #if BH_HAS_DLFCN
     const char *native_lib_list[8] = { NULL };
@@ -592,10 +637,6 @@ main(int argc, char *argv[])
 #endif
 #if WASM_ENABLE_THREAD_MGR != 0
     int timeout_ms = -1;
-#endif
-
-#if WASM_ENABLE_LIBC_WASI != 0
-    memset(&wasi_parse_ctx, 0, sizeof(wasi_parse_ctx));
 #endif
 
     /* Process options. */
@@ -660,6 +701,13 @@ main(int argc, char *argv[])
             jit_code_cache_size = atoi(argv[0] + 21);
         }
 #endif
+#if WASM_ENABLE_GC != 0
+        else if (!strncmp(argv[0], "--gc-heap-size=", 15)) {
+            if (argv[0][21] == '\0')
+                return print_help();
+            gc_heap_size = atoi(argv[0] + 15);
+        }
+#endif
 #if WASM_ENABLE_JIT != 0
         else if (!strncmp(argv[0], "--llvm-jit-size-level=", 22)) {
             if (argv[0][22] == '\0')
@@ -701,6 +749,80 @@ main(int argc, char *argv[])
                 return print_help();
         }
 #endif /* end of WASM_ENABLE_JIT != 0 */
+#if WASM_ENABLE_LIBC_WASI != 0
+        else if (!strncmp(argv[0], "--dir=", 6)) {
+            if (argv[0][6] == '\0')
+                return print_help();
+            if (dir_list_size >= sizeof(dir_list) / sizeof(char *)) {
+                printf("Only allow max dir number %d\n",
+                       (int)(sizeof(dir_list) / sizeof(char *)));
+                return 1;
+            }
+            dir_list[dir_list_size++] = argv[0] + 6;
+        }
+        else if (!strncmp(argv[0], "--map-dir=", 10)) {
+            if (argv[0][10] == '\0')
+                return print_help();
+            if (map_dir_list_size >= sizeof(map_dir_list) / sizeof(char *)) {
+                printf("Only allow max map dir number %d\n",
+                       (int)(sizeof(map_dir_list) / sizeof(char *)));
+                return 1;
+            }
+            map_dir_list[map_dir_list_size++] = argv[0] + 10;
+        }
+        else if (!strncmp(argv[0], "--env=", 6)) {
+            char *tmp_env;
+
+            if (argv[0][6] == '\0')
+                return print_help();
+            if (env_list_size >= sizeof(env_list) / sizeof(char *)) {
+                printf("Only allow max env number %d\n",
+                       (int)(sizeof(env_list) / sizeof(char *)));
+                return 1;
+            }
+            tmp_env = argv[0] + 6;
+            if (validate_env_str(tmp_env))
+                env_list[env_list_size++] = tmp_env;
+            else {
+                printf("Wasm parse env string failed: expect \"key=value\", "
+                       "got \"%s\"\n",
+                       tmp_env);
+                return print_help();
+            }
+        }
+        /* TODO: parse the configuration file via --addr-pool-file */
+        else if (!strncmp(argv[0], "--addr-pool=", strlen("--addr-pool="))) {
+            /* like: --addr-pool=100.200.244.255/30 */
+            char *token = NULL;
+
+            if ('\0' == argv[0][12])
+                return print_help();
+
+            token = strtok(argv[0] + strlen("--addr-pool="), ",");
+            while (token) {
+                if (addr_pool_size >= sizeof(addr_pool) / sizeof(char *)) {
+                    printf("Only allow max address number %d\n",
+                           (int)(sizeof(addr_pool) / sizeof(char *)));
+                    return 1;
+                }
+
+                addr_pool[addr_pool_size++] = token;
+                token = strtok(NULL, ";");
+            }
+        }
+        else if (!strncmp(argv[0], "--allow-resolve=", 16)) {
+            if (argv[0][16] == '\0')
+                return print_help();
+            if (ns_lookup_pool_size
+                >= sizeof(ns_lookup_pool) / sizeof(ns_lookup_pool[0])) {
+                printf(
+                    "Only allow max ns lookup number %d\n",
+                    (int)(sizeof(ns_lookup_pool) / sizeof(ns_lookup_pool[0])));
+                return 1;
+            }
+            ns_lookup_pool[ns_lookup_pool_size++] = argv[0] + 16;
+        }
+#endif /* WASM_ENABLE_LIBC_WASI */
 #if BH_HAS_DLFCN
         else if (!strncmp(argv[0], "--native-lib=", 13)) {
             if (argv[0][13] == '\0')
@@ -763,22 +885,8 @@ main(int argc, char *argv[])
                    patch);
             return 0;
         }
-        else {
-#if WASM_ENABLE_LIBC_WASI != 0
-            libc_wasi_parse_result_t result =
-                libc_wasi_parse(argv[0], &wasi_parse_ctx);
-            switch (result) {
-                case LIBC_WASI_PARSE_RESULT_OK:
-                    continue;
-                case LIBC_WASI_PARSE_RESULT_NEED_HELP:
-                    return print_help();
-                case LIBC_WASI_PARSE_RESULT_BAD_PARAM:
-                    return 1;
-            }
-#else
+        else
             return print_help();
-#endif
-        }
     }
 
     if (argc == 0)
@@ -808,6 +916,10 @@ main(int argc, char *argv[])
 
 #if WASM_ENABLE_FAST_JIT != 0
     init_args.fast_jit_code_cache_size = jit_code_cache_size;
+#endif
+
+#if WASM_ENABLE_GC != 0
+    init_args.gc_heap_size = gc_heap_size;
 #endif
 
 #if WASM_ENABLE_JIT != 0
@@ -875,7 +987,13 @@ main(int argc, char *argv[])
     }
 
 #if WASM_ENABLE_LIBC_WASI != 0
-    libc_wasi_init(wasm_module, argc, argv, &wasi_parse_ctx);
+    wasm_runtime_set_wasi_args(wasm_module, dir_list, dir_list_size,
+                               map_dir_list, map_dir_list_size, env_list,
+                               env_list_size, argv, argc);
+
+    wasm_runtime_set_wasi_addr_pool(wasm_module, addr_pool, addr_pool_size);
+    wasm_runtime_set_wasi_ns_lookup_pool(wasm_module, ns_lookup_pool,
+                                         ns_lookup_pool_size);
 #endif
 
     /* instantiate the module */
