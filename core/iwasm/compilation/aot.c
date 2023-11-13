@@ -114,9 +114,9 @@ aot_create_table_init_data_list(const WASMModule *module)
 
     /* Create each table data segment */
     for (i = 0; i < module->table_seg_count; i++) {
-        size = offsetof(AOTTableInitData, func_indexes)
-               + sizeof(uintptr_t)
-                     * (uint64)module->table_segments[i].function_count;
+        size =
+            offsetof(AOTTableInitData, func_indexes)
+            + sizeof(uint32) * (uint64)module->table_segments[i].function_count;
         if (size >= UINT32_MAX
             || !(data_list[i] = wasm_runtime_malloc((uint32)size))) {
             aot_set_last_error("allocate memory failed.");
@@ -136,14 +136,10 @@ aot_create_table_init_data_list(const WASMModule *module)
                     sizeof(AOTInitExpr));
         data_list[i]->func_index_count =
             module->table_segments[i].function_count;
-#if WASM_ENABLE_GC != 0
-        data_list[i]->elem_ref_type = module->table_segments[i].elem_ref_type;
-#endif
-        bh_memcpy_s(
-            data_list[i]->func_indexes,
-            sizeof(uintptr_t) * module->table_segments[i].function_count,
-            module->table_segments[i].func_indexes,
-            sizeof(uintptr_t) * module->table_segments[i].function_count);
+        bh_memcpy_s(data_list[i]->func_indexes,
+                    sizeof(uint32) * module->table_segments[i].function_count,
+                    module->table_segments[i].func_indexes,
+                    sizeof(uint32) * module->table_segments[i].function_count);
     }
 
     return data_list;
@@ -153,49 +149,13 @@ fail:
     return NULL;
 }
 
-static void
-get_value_type_size(uint8 value_type, bool gc_enabled, uint32 *p_size_64bit,
-                    uint32 *p_size_32bit)
-{
-    uint32 size_64bit = 0, size_32bit = 0;
-
-    if (value_type == VALUE_TYPE_I32 || value_type == VALUE_TYPE_F32)
-        size_64bit = size_32bit = sizeof(int32);
-    else if (value_type == VALUE_TYPE_I64 || value_type == VALUE_TYPE_F64)
-        size_64bit = size_32bit = sizeof(int64);
-    else if (value_type == VALUE_TYPE_V128)
-        size_64bit = size_32bit = sizeof(int64) * 2;
-    else if (!gc_enabled
-             && (value_type == VALUE_TYPE_FUNCREF
-                 || value_type == VALUE_TYPE_EXTERNREF))
-        size_64bit = size_32bit = sizeof(int32);
-    else if (gc_enabled &&
-#if WASM_ENABLE_STRINGREF != 0
-             value_type >= (uint8)REF_TYPE_STRINGVIEWITER /* 0x61 */
-#else
-             value_type >= (uint8)REF_TYPE_NULLREF /* 0x65 */
-#endif
-             && value_type <= (uint8)REF_TYPE_FUNCREF /* 0x70 */) {
-        size_64bit = sizeof(int64);
-        size_32bit = sizeof(uint32);
-    }
-    else {
-        bh_assert(0);
-    }
-
-    *p_size_64bit = size_64bit;
-    *p_size_32bit = size_32bit;
-}
-
 static AOTImportGlobal *
-aot_create_import_globals(const WASMModule *module, bool gc_enabled,
-                          uint32 *p_import_global_data_size_64bit,
-                          uint32 *p_import_global_data_size_32bit)
+aot_create_import_globals(const WASMModule *module,
+                          uint32 *p_import_global_data_size)
 {
     AOTImportGlobal *import_globals;
     uint64 size;
-    uint32 i, data_offset_64bit = 0, data_offset_32bit = 0;
-    uint32 value_size_64bit, value_size_32bit;
+    uint32 i, data_offset = 0;
 
     /* Allocate memory */
     size = sizeof(AOTImportGlobal) * (uint64)module->import_global_count;
@@ -216,37 +176,23 @@ aot_create_import_globals(const WASMModule *module, bool gc_enabled,
         import_globals[i].is_mutable = import_global->is_mutable;
         import_globals[i].global_data_linked =
             import_global->global_data_linked;
-
-        import_globals[i].data_offset_64bit = data_offset_64bit;
-        import_globals[i].data_offset_32bit = data_offset_32bit;
-
-        get_value_type_size(import_global->type, gc_enabled, &value_size_64bit,
-                            &value_size_32bit);
-
-        import_globals[i].size_64bit = value_size_64bit;
-        import_globals[i].size_32bit = value_size_32bit;
-        data_offset_64bit += value_size_64bit;
-        data_offset_32bit += value_size_32bit;
+        import_globals[i].size = wasm_value_type_size(import_global->type);
+        /* Calculate data offset */
+        import_globals[i].data_offset = data_offset;
+        data_offset += wasm_value_type_size(import_global->type);
     }
 
-    *p_import_global_data_size_64bit = data_offset_64bit;
-    *p_import_global_data_size_32bit = data_offset_32bit;
+    *p_import_global_data_size = data_offset;
     return import_globals;
 }
 
 static AOTGlobal *
-aot_create_globals(const WASMModule *module, bool gc_enabled,
-                   uint32 global_data_start_offset_64bit,
-                   uint32 global_data_start_offset_32bit,
-                   uint32 *p_global_data_size_64bit,
-                   uint32 *p_global_data_size_32bit)
+aot_create_globals(const WASMModule *module, uint32 global_data_start_offset,
+                   uint32 *p_global_data_size)
 {
     AOTGlobal *globals;
     uint64 size;
-    uint32 i;
-    uint32 data_offset_64bit = global_data_start_offset_64bit;
-    uint32 data_offset_32bit = global_data_start_offset_32bit;
-    uint32 value_size_64bit, value_size_32bit;
+    uint32 i, data_offset = global_data_start_offset;
 
     /* Allocate memory */
     size = sizeof(AOTGlobal) * (uint64)module->global_count;
@@ -262,26 +208,63 @@ aot_create_globals(const WASMModule *module, bool gc_enabled,
         WASMGlobal *global = &module->globals[i];
         globals[i].type = global->type;
         globals[i].is_mutable = global->is_mutable;
+        globals[i].size = wasm_value_type_size(global->type);
         memcpy(&globals[i].init_expr, &global->init_expr,
                sizeof(global->init_expr));
-
-        globals[i].data_offset_64bit = data_offset_64bit;
-        globals[i].data_offset_32bit = data_offset_32bit;
-
-        get_value_type_size(global->type, gc_enabled, &value_size_64bit,
-                            &value_size_32bit);
-
-        globals[i].size_64bit = value_size_64bit;
-        globals[i].size_32bit = value_size_32bit;
-        data_offset_64bit += value_size_64bit;
-        data_offset_32bit += value_size_32bit;
+        /* Calculate data offset */
+        globals[i].data_offset = data_offset;
+        data_offset += wasm_value_type_size(global->type);
     }
 
-    *p_global_data_size_64bit =
-        data_offset_64bit - global_data_start_offset_64bit;
-    *p_global_data_size_32bit =
-        data_offset_32bit - global_data_start_offset_32bit;
+    *p_global_data_size = data_offset - global_data_start_offset;
     return globals;
+}
+
+static void
+aot_destroy_func_types(AOTFuncType **func_types, uint32 count)
+{
+    uint32 i;
+    for (i = 0; i < count; i++)
+        if (func_types[i])
+            wasm_runtime_free(func_types[i]);
+    wasm_runtime_free(func_types);
+}
+
+static AOTFuncType **
+aot_create_func_types(const WASMModule *module)
+{
+    AOTFuncType **func_types;
+    uint64 size;
+    uint32 i;
+
+    /* Allocate memory */
+    size = sizeof(AOTFuncType *) * (uint64)module->type_count;
+    if (size >= UINT32_MAX
+        || !(func_types = wasm_runtime_malloc((uint32)size))) {
+        aot_set_last_error("allocate memory failed.");
+        return NULL;
+    }
+
+    memset(func_types, 0, size);
+
+    /* Create each function type */
+    for (i = 0; i < module->type_count; i++) {
+        size = offsetof(AOTFuncType, types)
+               + (uint64)module->types[i]->param_count
+               + (uint64)module->types[i]->result_count;
+        if (size >= UINT32_MAX
+            || !(func_types[i] = wasm_runtime_malloc((uint32)size))) {
+            aot_set_last_error("allocate memory failed.");
+            goto fail;
+        }
+        memcpy(func_types[i], module->types[i], size);
+    }
+
+    return func_types;
+
+fail:
+    aot_destroy_func_types(func_types, module->type_count);
+    return NULL;
 }
 
 static AOTImportFunc *
@@ -313,7 +296,7 @@ aot_create_import_funcs(const WASMModule *module)
         import_funcs[i].call_conv_wasm_c_api = false;
         /* Resolve function type index */
         for (j = 0; j < module->type_count; j++)
-            if (import_func->func_type == (WASMFuncType *)module->types[j]) {
+            if (import_func->func_type == module->types[j]) {
                 import_funcs[i].func_type_index = j;
                 break;
             }
@@ -362,7 +345,7 @@ aot_create_funcs(const WASMModule *module)
 
         /* Resolve function type index */
         for (j = 0; j < module->type_count; j++)
-            if (func->func_type == (WASMFuncType *)module->types[j]) {
+            if (func->func_type == module->types[j]) {
                 funcs[i]->func_type_index = j;
                 break;
             }
@@ -372,7 +355,6 @@ aot_create_funcs(const WASMModule *module)
         funcs[i]->local_types = func->local_types;
         funcs[i]->param_cell_num = func->param_cell_num;
         funcs[i]->local_cell_num = func->local_cell_num;
-        funcs[i]->max_stack_cell_num = func->max_stack_cell_num;
         funcs[i]->code = func->code;
         funcs[i]->code_size = func->code_size;
     }
@@ -385,11 +367,10 @@ fail:
 }
 
 AOTCompData *
-aot_create_comp_data(WASMModule *module, bool gc_enabled)
+aot_create_comp_data(WASMModule *module)
 {
     AOTCompData *comp_data;
-    uint32 import_global_data_size_64bit = 0, global_data_size_64bit = 0, i, j;
-    uint32 import_global_data_size_32bit = 0, global_data_size_32bit = 0;
+    uint32 import_global_data_size = 0, global_data_size = 0, i, j;
     uint64 size;
 
     /* Allocate memory */
@@ -477,10 +458,6 @@ aot_create_comp_data(WASMModule *module, bool gc_enabled)
                     module->import_tables[i].u.table.init_size;
                 comp_data->tables[i].table_max_size =
                     module->import_tables[i].u.table.max_size;
-#if WASM_ENABLE_GC != 0
-                comp_data->tables[i].elem_ref_type =
-                    module->import_tables[i].u.table.elem_ref_type;
-#endif
                 comp_data->tables[i].possible_grow =
                     module->import_tables[i].u.table.possible_grow;
             }
@@ -494,10 +471,6 @@ aot_create_comp_data(WASMModule *module, bool gc_enabled)
                     module->tables[j].max_size;
                 comp_data->tables[i].possible_grow =
                     module->tables[j].possible_grow;
-#if WASM_ENABLE_GC != 0
-                comp_data->tables[j].elem_ref_type =
-                    module->tables[j].elem_ref_type;
-#endif
             }
         }
     }
@@ -512,28 +485,24 @@ aot_create_comp_data(WASMModule *module, bool gc_enabled)
     /* Create import globals */
     comp_data->import_global_count = module->import_global_count;
     if (comp_data->import_global_count > 0
-        && !(comp_data->import_globals = aot_create_import_globals(
-                 module, gc_enabled, &import_global_data_size_64bit,
-                 &import_global_data_size_32bit)))
+        && !(comp_data->import_globals =
+                 aot_create_import_globals(module, &import_global_data_size)))
         goto fail;
 
     /* Create globals */
     comp_data->global_count = module->global_count;
     if (comp_data->global_count
         && !(comp_data->globals = aot_create_globals(
-                 module, gc_enabled, import_global_data_size_64bit,
-                 import_global_data_size_32bit, &global_data_size_64bit,
-                 &global_data_size_32bit)))
+                 module, import_global_data_size, &global_data_size)))
         goto fail;
 
-    comp_data->global_data_size_64bit =
-        import_global_data_size_64bit + global_data_size_64bit;
-    comp_data->global_data_size_32bit =
-        import_global_data_size_32bit + global_data_size_32bit;
+    comp_data->global_data_size = import_global_data_size + global_data_size;
 
-    /* Create types, they are checked by wasm loader */
-    comp_data->type_count = module->type_count;
-    comp_data->types = module->types;
+    /* Create function types */
+    comp_data->func_type_count = module->type_count;
+    if (comp_data->func_type_count
+        && !(comp_data->func_types = aot_create_func_types(module)))
+        goto fail;
 
     /* Create import functions */
     comp_data->import_func_count = module->import_function_count;
@@ -607,6 +576,10 @@ aot_destroy_comp_data(AOTCompData *comp_data)
 
     if (comp_data->globals)
         wasm_runtime_free(comp_data->globals);
+
+    if (comp_data->func_types)
+        aot_destroy_func_types(comp_data->func_types,
+                               comp_data->func_type_count);
 
     if (comp_data->import_funcs)
         wasm_runtime_free(comp_data->import_funcs);
