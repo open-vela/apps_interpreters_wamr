@@ -2061,6 +2061,7 @@ static ArchItem valid_archs[] = {
 static const char *valid_abis[] = {
     "gnu",
     "eabi",
+    "eabihf",
     "gnueabihf",
     "msvc",
     "ilp32",
@@ -2136,6 +2137,18 @@ get_target_arch_from_triple(const char *triple, char *arch_buf, uint32 buf_size)
         arch_buf[i++] = *triple++;
     /* Make sure buffer is long enough */
     bh_assert(*triple == '-' || *triple == '\0');
+}
+
+static bool
+is_baremetal_target(const char *target, const char *cpu, const char *abi)
+{
+    /* TODO: support more baremetal targets */
+    if (target) {
+        /* If target is thumbxxx, then it is baremetal target */
+        if (!strncmp(target, "thumb", strlen("thumb")))
+            return true;
+    }
+    return false;
 }
 
 void
@@ -2360,7 +2373,7 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
     char *triple_norm_new = NULL, *cpu_new = NULL;
     char *err = NULL, *fp_round = "round.tonearest",
          *fp_exce = "fpexcept.strict";
-    char triple_buf[32] = { 0 }, features_buf[128] = { 0 };
+    char triple_buf[128] = { 0 }, features_buf[128] = { 0 };
     uint32 opt_level, size_level, i;
     LLVMCodeModel code_model;
     LLVMTargetDataRef target_data_ref;
@@ -2661,6 +2674,7 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
              * for Windows/MacOS under Linux host, or generating AOT file for
              * Linux/MacOS under Windows host.
              */
+
             if (!strcmp(abi, "msvc")) {
                 if (!strcmp(arch1, "i386"))
                     vendor_sys = "-pc-win32-";
@@ -2668,7 +2682,10 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
                     vendor_sys = "-pc-windows-";
             }
             else {
-                vendor_sys = "-pc-linux-";
+                if (is_baremetal_target(arch, cpu, abi))
+                    vendor_sys = "-unknown-none-";
+                else
+                    vendor_sys = "-pc-linux-";
             }
 
             bh_assert(strlen(arch1) + strlen(vendor_sys) + strlen(abi)
@@ -2703,6 +2720,9 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
                 vendor_sys = "-pc-win32-";
                 if (!abi)
                     abi = "msvc";
+            }
+            else if (is_baremetal_target(arch, cpu, abi)) {
+                vendor_sys = "-unknown-none-";
             }
             else {
                 vendor_sys = "-pc-linux-";
