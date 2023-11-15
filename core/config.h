@@ -290,11 +290,6 @@
 #define WASM_ENABLE_SIMD 0
 #endif
 
-/* GC performance profiling */
-#ifndef WASM_ENABLE_GC_PERF_PROFILING
-#define WASM_ENABLE_GC_PERF_PROFILING 0
-#endif
-
 /* Memory profiling */
 #ifndef WASM_ENABLE_MEMORY_PROFILING
 #define WASM_ENABLE_MEMORY_PROFILING 0
@@ -315,19 +310,14 @@
 #define WASM_ENABLE_DUMP_CALL_STACK 0
 #endif
 
-/* AOT stack frame */
-#ifndef WASM_ENABLE_AOT_STACK_FRAME
-#define WASM_ENABLE_AOT_STACK_FRAME 0
-#endif
-
-/* JIT stack frame */
-#ifndef WASM_ENABLE_JIT_STACK_FRAME
-#define WASM_ENABLE_JIT_STACK_FRAME 0
-#endif
-
 /* Heap verification */
 #ifndef BH_ENABLE_GC_VERIFY
 #define BH_ENABLE_GC_VERIFY 0
+#endif
+
+/* Heap corruption check, enabled by default */
+#ifndef BH_ENABLE_GC_CORRUPTION_CHECK
+#define BH_ENABLE_GC_CORRUPTION_CHECK 1
 #endif
 
 /* Enable global heap pool if heap verification is enabled */
@@ -382,13 +372,6 @@
 #endif
 #define APP_HEAP_SIZE_MIN (256)
 #define APP_HEAP_SIZE_MAX (512 * 1024 * 1024)
-
-/* Default min/max gc heap size of each app */
-#ifndef GC_HEAP_SIZE_DEFAULT
-#define GC_HEAP_SIZE_DEFAULT (128 * 1024)
-#endif
-#define GC_HEAP_SIZE_MIN (4 * 1024)
-#define GC_HEAP_SIZE_MAX (1024 * 1024 * 1024)
 
 /* Default wasm stack size of each app */
 #if defined(BUILD_TARGET_X86_64) || defined(BUILD_TARGET_AMD_64)
@@ -463,27 +446,6 @@
 #define WASM_ENABLE_REF_TYPES 0
 #endif
 
-#ifndef WASM_ENABLE_GC
-#define WASM_ENABLE_GC 0
-#endif
-
-/* GC binaryen compatible mode */
-#ifndef WASM_ENABLE_GC_BINARYEN
-#define WASM_ENABLE_GC_BINARYEN 0
-#endif
-
-#ifndef WASM_ENABLE_STRINGREF
-#define WASM_ENABLE_STRINGREF 0
-#endif
-
-#ifndef GC_REFTYPE_MAP_SIZE_DEFAULT
-#define GC_REFTYPE_MAP_SIZE_DEFAULT 64
-#endif
-
-#ifndef GC_RTTOBJ_MAP_SIZE_DEFAULT
-#define GC_RTTOBJ_MAP_SIZE_DEFAULT 64
-#endif
-
 #ifndef WASM_ENABLE_SGX_IPFS
 #define WASM_ENABLE_SGX_IPFS 0
 #endif
@@ -526,10 +488,6 @@
 /* The max number of module instance contexts. */
 #ifndef WASM_MAX_INSTANCE_CONTEXTS
 #define WASM_MAX_INSTANCE_CONTEXTS 8
-#endif
-
-#ifndef WASM_TABLE_MAX_SIZE
-#define WASM_TABLE_MAX_SIZE 1024
 #endif
 
 #endif /* end of _CONFIG_H_ */
