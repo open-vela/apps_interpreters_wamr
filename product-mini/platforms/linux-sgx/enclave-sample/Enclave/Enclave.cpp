@@ -250,8 +250,7 @@ handle_cmd_load_module(uint64 *args, uint32 argc)
 
         if (total_size >= UINT32_MAX
             || !(enclave_module = (EnclaveModule *)os_mmap(
-                     NULL, (uint32)total_size, map_prot, map_flags,
-                     os_get_invalid_handle()))) {
+                     NULL, (uint32)total_size, map_prot, map_flags))) {
             set_error_buf(error_buf, error_buf_size,
                           "WASM module load failed: mmap memory failed.");
             *(void **)args_org = NULL;
