@@ -5,9 +5,6 @@
 
 #include "wasm_exec_env.h"
 #include "wasm_runtime_common.h"
-#if WASM_ENABLE_GC != 0
-#include "mem_alloc.h"
-#endif
 #if WASM_ENABLE_INTERP != 0
 #include "../interpreter/wasm_runtime.h"
 #endif
@@ -61,7 +58,8 @@ wasm_exec_env_create_internal(struct WASMModuleInstanceCommon *module_inst,
 
 #ifdef OS_ENABLE_HW_BOUND_CHECK
     if (!(exec_env->exce_check_guard_page =
-              os_mmap(NULL, os_getpagesize(), MMAP_PROT_NONE, MMAP_MAP_NONE)))
+              os_mmap(NULL, os_getpagesize(), MMAP_PROT_NONE, MMAP_MAP_NONE,
+                      os_get_invalid_handle())))
         goto fail5;
 #endif
 
@@ -136,9 +134,6 @@ wasm_exec_env_create(struct WASMModuleInstanceCommon *module_inst,
 #endif
     WASMExecEnv *exec_env =
         wasm_exec_env_create_internal(module_inst, stack_size);
-#if WASM_ENABLE_GC != 0
-    void *gc_heap_handle = NULL;
-#endif
 
     if (!exec_env)
         return NULL;
@@ -150,10 +145,6 @@ wasm_exec_env_create(struct WASMModuleInstanceCommon *module_inst,
         exec_env->aux_stack_bottom.bottom = module->aux_stack_bottom;
         exec_env->aux_stack_boundary.boundary =
             module->aux_stack_bottom - module->aux_stack_size;
-#if WASM_ENABLE_GC != 0
-        gc_heap_handle =
-            ((WASMModuleInstance *)module_inst)->e->common.gc_heap_pool;
-#endif
     }
 #endif
 #if WASM_ENABLE_AOT != 0
@@ -164,11 +155,6 @@ wasm_exec_env_create(struct WASMModuleInstanceCommon *module_inst,
         exec_env->aux_stack_bottom.bottom = module->aux_stack_bottom;
         exec_env->aux_stack_boundary.boundary =
             module->aux_stack_bottom - module->aux_stack_size;
-#if WASM_ENABLE_GC != 0
-        gc_heap_handle =
-            ((AOTModuleInstanceExtra *)((AOTModuleInstance *)module_inst)->e)
-                ->common.gc_heap_handle;
-#endif
     }
 #endif
 
@@ -178,13 +164,6 @@ wasm_exec_env_create(struct WASMModuleInstanceCommon *module_inst,
         wasm_exec_env_destroy_internal(exec_env);
         return NULL;
     }
-#if WASM_ENABLE_GC != 0
-    mem_allocator_enable_gc_reclaim(gc_heap_handle, cluster);
-#endif
-#else
-#if WASM_ENABLE_GC != 0
-    mem_allocator_enable_gc_reclaim(gc_heap_handle, exec_env);
-#endif
 #endif /* end of WASM_ENABLE_THREAD_MGR */
 
     return exec_env;
@@ -223,7 +202,52 @@ void
 wasm_exec_env_set_module_inst(WASMExecEnv *exec_env,
                               WASMModuleInstanceCommon *const module_inst)
 {
+#if WASM_ENABLE_THREAD_MGR != 0
+    wasm_cluster_traverse_lock(exec_env);
+#endif
     exec_env->module_inst = module_inst;
+#if WASM_ENABLE_THREAD_MGR != 0
+    wasm_cluster_traverse_unlock(exec_env);
+#endif
+}
+
+void
+wasm_exec_env_restore_module_inst(
+    WASMExecEnv *exec_env, WASMModuleInstanceCommon *const module_inst_common)
+{
+    WASMModuleInstanceCommon *old_module_inst_common = exec_env->module_inst;
+    WASMModuleInstance *old_module_inst =
+        (WASMModuleInstance *)old_module_inst_common;
+    WASMModuleInstance *module_inst = (WASMModuleInstance *)module_inst_common;
+    char cur_exception[EXCEPTION_BUF_LEN];
+
+#if WASM_ENABLE_THREAD_MGR != 0
+    wasm_cluster_traverse_lock(exec_env);
+#endif
+    exec_env->module_inst = module_inst_common;
+    /*
+     * propagate an exception if any.
+     */
+    exception_lock(old_module_inst);
+    if (old_module_inst->cur_exception[0] != '\0') {
+        bh_memcpy_s(cur_exception, sizeof(cur_exception),
+                    old_module_inst->cur_exception,
+                    sizeof(old_module_inst->cur_exception));
+    }
+    else {
+        cur_exception[0] = '\0';
+    }
+    exception_unlock(old_module_inst);
+#if WASM_ENABLE_THREAD_MGR != 0
+    wasm_cluster_traverse_unlock(exec_env);
+#endif
+    if (cur_exception[0] != '\0') {
+        exception_lock(module_inst);
+        bh_memcpy_s(module_inst->cur_exception,
+                    sizeof(module_inst->cur_exception), cur_exception,
+                    sizeof(cur_exception));
+        exception_unlock(module_inst);
+    }
 }
 
 void
