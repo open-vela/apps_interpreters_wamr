@@ -5,7 +5,6 @@
 
 #include "platform_api_vmcore.h"
 #include "platform_api_extension.h"
-#include "libc_errno.h"
 
 #ifndef SGX_DISABLE_WASI
 
@@ -856,13 +855,10 @@ os_socket_send_to(bh_socket_t socket, const void *buf, unsigned int len,
     return ret;
 }
 
-__wasi_errno_t
+int
 os_socket_shutdown(bh_socket_t socket)
 {
-    if (shutdown(socket, O_RDWR) != 0) {
-        return convert_errno(errno);
-    }
-    return __WASI_ESUCCESS;
+    return shutdown(socket, O_RDWR);
 }
 
 int
