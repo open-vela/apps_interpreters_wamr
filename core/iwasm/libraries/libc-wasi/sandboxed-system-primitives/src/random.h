@@ -14,12 +14,8 @@
 #ifndef RANDOM_H
 #define RANDOM_H
 
-#include "bh_platform.h"
-
-__wasi_errno_t
+void
 random_buf(void *, size_t);
-
-__wasi_errno_t
-random_uniform(uintmax_t upper, uintmax_t *out);
+uintmax_t random_uniform(uintmax_t);
 
 #endif
