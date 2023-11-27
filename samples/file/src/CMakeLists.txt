@@ -9,6 +9,7 @@ if (NOT WAMR_BUILD_PLATFORM STREQUAL "windows")
   project (iwasm)
 else()
   project (iwasm C ASM)
+  enable_language (ASM_MASM)
 endif()
 
 ################  runtime settings  ################
@@ -50,6 +51,7 @@ set (WAMR_BUILD_INTERP 1)
 set (WAMR_BUILD_AOT 1)
 set (WAMR_BUILD_JIT 0)
 set (WAMR_BUILD_LIBC_BUILTIN 1)
+set (WAMR_BUILD_REF_TYPES 1)
 
 if (NOT MSVC)
   set (WAMR_BUILD_LIBC_WASI 1)
