@@ -12,6 +12,7 @@
 #include "llvm-c/Target.h"
 #include "llvm-c/Core.h"
 #include "llvm-c/Object.h"
+#include "llvm-c/OrcEE.h"
 #include "llvm-c/ExecutionEngine.h"
 #include "llvm-c/Analysis.h"
 #include "llvm-c/BitWriter.h"
@@ -34,7 +35,6 @@
 #endif
 
 #include "aot_orc_extra.h"
-#include "aot_comp_option.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -64,8 +64,6 @@ extern "C" {
 #undef DUMP_MODULE
 #endif
 
-struct AOTValueSlot;
-
 /**
  * Value in the WASM operation stack, each stack element
  * is an LLVM value
@@ -87,50 +85,6 @@ typedef struct AOTValueStack {
     AOTValue *value_list_head;
     AOTValue *value_list_end;
 } AOTValueStack;
-
-/* Record information of a value slot of local variable or stack
-   during translation */
-typedef struct AOTValueSlot {
-    /* The LLVM value of this slot */
-    LLVMValueRef value;
-
-    /* The value type of this slot */
-    uint8 type;
-
-    /* The dirty bit of the value slot. It's set if the value in
-       register is newer than the value in memory. */
-    uint32 dirty : 1;
-
-    /* Whether the new value in register is a reference, which is valid
-       only when the dirty bit is set. */
-    uint32 ref : 1;
-
-    /* Committed reference flag:
-         0: uncommitted, 1: not-reference, 2: reference */
-    uint32 committed_ref : 2;
-} AOTValueSlot;
-
-/* Frame information for translation */
-typedef struct AOTCompFrame {
-    /* The current wasm module */
-    WASMModule *cur_wasm_module;
-    /* The current compilation context */
-    struct AOTCompContext *comp_ctx;
-    /* The current function context */
-    struct AOTFuncContext *func_ctx;
-
-    /* Max local slot number */
-    uint32 max_local_cell_num;
-
-    /* Max operand stack slot number */
-    uint32 max_stack_cell_num;
-
-    /* Stack top pointer */
-    AOTValueSlot *sp;
-
-    /* Local variables + stack operands */
-    AOTValueSlot lp[1];
-} AOTCompFrame;
 
 typedef struct AOTBlock {
     struct AOTBlock *next;
@@ -170,12 +124,6 @@ typedef struct AOTBlock {
     uint32 result_count;
     uint8 *result_types;
     LLVMValueRef *result_phis;
-
-    /* The begin frame stack pointer of this block */
-    AOTValueSlot *frame_sp_begin;
-    /* The max frame stack pointer that br/br_if/br_table/br_on_xxx
-       opcodes ever reached when they jumped to the end this block */
-    AOTValueSlot *frame_sp_max_reached;
 } AOTBlock;
 
 /**
@@ -228,8 +176,6 @@ typedef struct AOTFuncContext {
 
     LLVMValueRef cur_exception;
 
-    LLVMValueRef cur_frame;
-
     bool mem_space_unchanged;
     AOTCheckedAddrList checked_addr_list;
 
@@ -252,7 +198,6 @@ typedef struct AOTLLVMTypes {
     LLVMTypeRef int16_type;
     LLVMTypeRef int32_type;
     LLVMTypeRef int64_type;
-    LLVMTypeRef intptr_t_type;
     LLVMTypeRef float32_type;
     LLVMTypeRef float64_type;
     LLVMTypeRef void_type;
@@ -262,7 +207,6 @@ typedef struct AOTLLVMTypes {
     LLVMTypeRef int16_ptr_type;
     LLVMTypeRef int32_ptr_type;
     LLVMTypeRef int64_ptr_type;
-    LLVMTypeRef intptr_t_ptr_type;
     LLVMTypeRef float32_ptr_type;
     LLVMTypeRef float64_ptr_type;
 
@@ -289,8 +233,6 @@ typedef struct AOTLLVMTypes {
 
     LLVMTypeRef funcref_type;
     LLVMTypeRef externref_type;
-    LLVMTypeRef gc_ref_type;
-    LLVMTypeRef gc_ref_ptr_type;
 } AOTLLVMTypes;
 
 typedef struct AOTLLVMConsts {
@@ -340,8 +282,6 @@ typedef struct AOTLLVMConsts {
     LLVMValueRef i32x8_zero;
     LLVMValueRef i32x4_zero;
     LLVMValueRef i32x2_zero;
-    LLVMValueRef gc_ref_null;
-    LLVMValueRef i8_ptr_null;
 } AOTLLVMConsts;
 
 /**
@@ -436,9 +376,6 @@ typedef struct AOTCompContext {
     /* Whether optimize the JITed code */
     bool optimize;
 
-    /* Enable GC */
-    bool enable_gc;
-
     uint32 opt_level;
     uint32 size_level;
 
@@ -462,6 +399,7 @@ typedef struct AOTCompContext {
     AOTLLVMConsts llvm_consts;
 
     /* Function contexts */
+    /* TODO: */
     AOTFuncContext **func_ctxes;
     uint32 func_ctx_count;
     char **custom_sections_wp;
@@ -486,8 +424,7 @@ typedef struct AOTCompContext {
     const char *llvm_passes;
     const char *builtin_intrinsics;
 
-    /* Current frame information for translation */
-    AOTCompFrame *aot_frame;
+    bool emit_frame_pointer;
 } AOTCompContext;
 
 enum {
@@ -496,6 +433,41 @@ enum {
     AOT_LLVMIR_UNOPT_FILE,
     AOT_LLVMIR_OPT_FILE,
 };
+
+/* always sync it with AOTCompOption in aot_export.h */
+typedef struct AOTCompOption {
+    bool is_jit_mode;
+    bool is_indirect_mode;
+    char *target_arch;
+    char *target_abi;
+    char *target_cpu;
+    char *cpu_features;
+    bool is_sgx_platform;
+    bool enable_bulk_memory;
+    bool enable_thread_mgr;
+    bool enable_tail_call;
+    bool enable_simd;
+    bool enable_ref_types;
+    bool enable_aux_stack_check;
+    bool enable_aux_stack_frame;
+    bool disable_llvm_intrinsics;
+    bool disable_llvm_lto;
+    bool enable_llvm_pgo;
+    bool enable_stack_estimation;
+    char *use_prof_file;
+    uint32 opt_level;
+    uint32 size_level;
+    uint32 output_format;
+    uint32 bounds_checks;
+    uint32 stack_bounds_checks;
+    uint32 segue_flags;
+    bool linux_perf_support;
+    char **custom_sections;
+    uint32 custom_sections_count;
+    const char *stack_usage_file;
+    const char *llvm_passes;
+    const char *builtin_intrinsics;
+} AOTCompOption, *aot_comp_option_t;
 
 bool
 aot_compiler_init(void);
@@ -522,14 +494,13 @@ void
 aot_destroy_elf_file(uint8 *elf_file);
 
 void
-aot_value_stack_push(const AOTCompContext *comp_ctx, AOTValueStack *stack,
-                     AOTValue *value);
+aot_value_stack_push(AOTValueStack *stack, AOTValue *value);
 
 AOTValue *
-aot_value_stack_pop(const AOTCompContext *comp_ctx, AOTValueStack *stack);
+aot_value_stack_pop(AOTValueStack *stack);
 
 void
-aot_value_stack_destroy(AOTCompContext *comp_ctx, AOTValueStack *stack);
+aot_value_stack_destroy(AOTValueStack *stack);
 
 void
 aot_block_stack_push(AOTBlockStack *stack, AOTBlock *block);
@@ -538,14 +509,13 @@ AOTBlock *
 aot_block_stack_pop(AOTBlockStack *stack);
 
 void
-aot_block_stack_destroy(AOTCompContext *comp_ctx, AOTBlockStack *stack);
+aot_block_stack_destroy(AOTBlockStack *stack);
 
 void
-aot_block_destroy(AOTCompContext *comp_ctx, AOTBlock *block);
+aot_block_destroy(AOTBlock *block);
 
 LLVMTypeRef
-wasm_type_to_llvm_type(const AOTCompContext *comp_ctx,
-                       const AOTLLVMTypes *llvm_types, uint8 wasm_type);
+wasm_type_to_llvm_type(const AOTLLVMTypes *llvm_types, uint8 wasm_type);
 
 bool
 aot_checked_addr_list_add(AOTFuncContext *func_ctx, uint32 local_idx,
