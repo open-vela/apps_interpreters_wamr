@@ -47,7 +47,7 @@ os_dumps_proc_mem_info(char *out, unsigned int size)
 }
 
 void *
-os_mmap(void *hint, size_t size, int prot, int flags, os_file_handle file)
+os_mmap(void *hint, size_t size, int prot, int flags)
 {
     if ((uint64)size >= UINT32_MAX)
         return NULL;
