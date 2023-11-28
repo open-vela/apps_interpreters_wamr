@@ -78,20 +78,6 @@ if (WAMR_BUILD_AOT EQUAL 1)
     include (${IWASM_DIR}/aot/iwasm_aot.cmake)
 endif ()
 
-if (WAMR_BUILD_STRINGREF EQUAL 1)
-    set (WAMR_BUILD_GC 1)
-endif ()
-
-if (WAMR_BUILD_GC_BINARYEN EQUAL 1)
-    set (WAMR_BUILD_GC 1)
-endif ()
-
-if (WAMR_BUILD_GC EQUAL 1)
-    include (${IWASM_DIR}/common/gc/iwasm_gc.cmake)
-    # Enable the dependent feature if GC is enabled
-    set (WAMR_BUILD_REF_TYPES 1)
-endif ()
-
 if (WAMR_BUILD_APP_FRAMEWORK EQUAL 1)
     include (${APP_FRAMEWORK_DIR}/app_framework.cmake)
     include (${SHARED_DIR}/coap/lib_coap.cmake)
@@ -179,7 +165,11 @@ file (GLOB header
 )
 LIST (APPEND RUNTIME_LIB_HEADER_LIST ${header})
 
-enable_language (ASM)
+if (WAMR_BUILD_PLATFORM STREQUAL "windows")
+    enable_language (ASM_MASM)
+else()
+    enable_language (ASM)
+endif()
 
 include (${SHARED_PLATFORM_CONFIG})
 include (${SHARED_DIR}/mem-alloc/mem_alloc.cmake)
@@ -199,7 +189,6 @@ set (source_all
     ${IWASM_AOT_SOURCE}
     ${IWASM_COMPL_SOURCE}
     ${IWASM_FAST_JIT_SOURCE}
-    ${IWASM_GC_SOURCE}
     ${WASM_APP_LIB_SOURCE_ALL}
     ${NATIVE_INTERFACE_SOURCE}
     ${APP_MGR_SOURCE}
