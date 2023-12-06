@@ -252,7 +252,7 @@ const_str_list_insert(const uint8 *str, uint32 len, WASMModule *module,
 }
 
 static void
-destroy_wasm_type(WASMType *type)
+destroy_wasm_type(WASMFuncType *type)
 {
     if (type->ref_count > 1) {
         /* The type is referenced by other types
@@ -357,13 +357,13 @@ load_type_section(const uint8 *buf, const uint8 *buf_end, WASMModule *module,
     uint32 param_cell_num, ret_cell_num;
     uint64 total_size;
     uint8 flag;
-    WASMType *type;
+    WASMFuncType *type;
 
     read_leb_uint32(p, p_end, type_count);
 
     if (type_count) {
         module->type_count = type_count;
-        total_size = sizeof(WASMType *) * (uint64)type_count;
+        total_size = sizeof(WASMFuncType *) * (uint64)type_count;
         if (!(module->types =
                   loader_malloc(total_size, error_buf, error_buf_size))) {
             return false;
@@ -386,7 +386,7 @@ load_type_section(const uint8 *buf, const uint8 *buf_end, WASMModule *module,
 
             bh_assert(param_count <= UINT16_MAX && result_count <= UINT16_MAX);
 
-            total_size = offsetof(WASMType, types)
+            total_size = offsetof(WASMFuncType, types)
                          + sizeof(uint8) * (uint64)(param_count + result_count);
             if (!(type = module->types[i] =
                       loader_malloc(total_size, error_buf, error_buf_size))) {
@@ -420,7 +420,7 @@ load_type_section(const uint8 *buf, const uint8 *buf_end, WASMModule *module,
 
             /* If there is already a same type created, use it instead */
             for (j = 0; j < i; ++j) {
-                if (wasm_type_equal(type, module->types[j])) {
+                if (wasm_type_equal(type, module->types[j], module->types, i)) {
                     bh_assert(module->types[j]->ref_count != UINT16_MAX);
                     destroy_wasm_type(type);
                     module->types[i] = module->types[j];
@@ -440,8 +440,9 @@ load_type_section(const uint8 *buf, const uint8 *buf_end, WASMModule *module,
 static void
 adjust_table_max_size(uint32 init_size, uint32 max_size_flag, uint32 *max_size)
 {
-    uint32 default_max_size =
-        init_size * 2 > TABLE_MAX_SIZE ? init_size * 2 : TABLE_MAX_SIZE;
+    uint32 default_max_size = init_size * 2 > WASM_TABLE_MAX_SIZE
+                                  ? init_size * 2
+                                  : WASM_TABLE_MAX_SIZE;
 
     if (max_size_flag) {
         /* module defines the table limitation */
@@ -467,7 +468,7 @@ load_function_import(const uint8 **p_buf, const uint8 *buf_end,
 {
     const uint8 *p = *p_buf, *p_end = buf_end;
     uint32 declare_type_index = 0;
-    WASMType *declare_func_type = NULL;
+    WASMFuncType *declare_func_type = NULL;
     WASMFunction *linked_func = NULL;
     const char *linked_signature = NULL;
     void *linked_attachment = NULL;
@@ -907,7 +908,7 @@ static bool
 init_function_local_offsets(WASMFunction *func, char *error_buf,
                             uint32 error_buf_size)
 {
-    WASMType *param_type = func->func_type;
+    WASMFuncType *param_type = func->func_type;
     uint32 param_count = param_type->param_count;
     uint8 *param_types = param_type->types;
     uint32 local_count = func->local_count;
@@ -1345,9 +1346,9 @@ load_func_index_vec(const uint8 **p_buf, const uint8 *buf_end,
 
     read_leb_uint32(p, p_end, function_count);
     table_segment->function_count = function_count;
-    total_size = sizeof(uint32) * (uint64)function_count;
+    total_size = sizeof(uintptr_t) * (uint64)function_count;
     if (total_size > 0
-        && !(table_segment->func_indexes = (uint32 *)loader_malloc(
+        && !(table_segment->func_indexes = (uintptr_t *)loader_malloc(
                  total_size, error_buf, error_buf_size))) {
         return false;
     }
@@ -1646,7 +1647,7 @@ load_start_section(const uint8 *buf, const uint8 *buf_end, WASMModule *module,
                    char *error_buf, uint32 error_buf_size)
 {
     const uint8 *p = buf, *p_end = buf_end;
-    WASMType *type;
+    WASMFuncType *type;
     uint32 start_function;
 
     read_leb_uint32(p, p_end, start_function);
@@ -1839,6 +1840,7 @@ init_llvm_jit_functions_stage1(WASMModule *module, char *error_buf,
     AOTCompOption option = { 0 };
     char *aot_last_error;
     uint64 size;
+    bool gc_enabled = false; /* GC hasn't been enabled in mini loader */
 
     if (module->function_count == 0)
         return true;
@@ -1865,7 +1867,7 @@ init_llvm_jit_functions_stage1(WASMModule *module, char *error_buf,
         (bool *)((uint8 *)module->func_ptrs
                  + sizeof(void *) * module->function_count);
 
-    module->comp_data = aot_create_comp_data(module);
+    module->comp_data = aot_create_comp_data(module, NULL, gc_enabled);
     if (!module->comp_data) {
         aot_last_error = aot_get_last_error();
         bh_assert(aot_last_error != NULL);
@@ -1895,7 +1897,8 @@ init_llvm_jit_functions_stage1(WASMModule *module, char *error_buf,
     option.enable_ref_types = true;
 #endif
     option.enable_aux_stack_check = true;
-#if (WASM_ENABLE_PERF_PROFILING != 0) || (WASM_ENABLE_DUMP_CALL_STACK != 0)
+#if (WASM_ENABLE_PERF_PROFILING != 0) || (WASM_ENABLE_DUMP_CALL_STACK != 0) \
+    || (WASM_ENABLE_JIT_STACK_FRAME != 0)
     option.enable_aux_stack_frame = true;
 #endif
 #if WASM_ENABLE_MEMORY_PROFILING != 0
@@ -2294,7 +2297,7 @@ load_from_sections(WASMModule *module, WASMSection *sections,
     uint32 aux_stack_top = (uint32)-1, global_index, func_index, i;
     uint32 aux_data_end_global_index = (uint32)-1;
     uint32 aux_heap_base_global_index = (uint32)-1;
-    WASMType *func_type;
+    WASMFuncType *func_type;
 
     /* Find code and function sections if have */
     while (section) {
@@ -5361,7 +5364,7 @@ copy_params_to_dynamic_space(WASMLoaderContext *loader_ctx, bool is_if_block,
     uint32 i;
     BranchBlock *block = loader_ctx->frame_csp - 1;
     BlockType *block_type = &block->block_type;
-    WASMType *wasm_type = block_type->u.type;
+    WASMFuncType *wasm_type = block_type->u.type;
     uint32 param_count = block_type->u.type->param_count;
     int16 condition_offset = 0;
     bool disable_emit = false;
@@ -5590,7 +5593,7 @@ re_scan:
                      * 0x40/0x7F/0x7E/0x7D/0x7C, take it as the type of
                      * the single return value. */
                     block_type.is_value_type = true;
-                    block_type.u.value_type = value_type;
+                    block_type.u.value_type.type = value_type;
                 }
                 else {
                     uint32 type_index;
@@ -5611,7 +5614,7 @@ re_scan:
 
                 /* Pop block parameters from stack */
                 if (BLOCK_HAS_PARAM(block_type)) {
-                    WASMType *wasm_type = block_type.u.type;
+                    WASMFuncType *wasm_type = block_type.u.type;
                     for (i = 0; i < block_type.u.type->param_count; i++)
                         POP_TYPE(
                             wasm_type->types[wasm_type->param_count - i - 1]);
@@ -5627,7 +5630,10 @@ re_scan:
                 }
 
 #if WASM_ENABLE_FAST_INTERP != 0
-                if (opcode == WASM_OP_BLOCK || opcode == WASM_OP_LOOP) {
+                if (opcode == WASM_OP_BLOCK) {
+                    skip_label();
+                }
+                else if (opcode == WASM_OP_LOOP) {
                     skip_label();
                     if (BLOCK_HAS_PARAM(block_type)) {
                         /* Make sure params are in dynamic space */
@@ -5635,10 +5641,8 @@ re_scan:
                                 loader_ctx, false, error_buf, error_buf_size))
                             goto fail;
                     }
-                    if (opcode == WASM_OP_LOOP) {
-                        (loader_ctx->frame_csp - 1)->code_compiled =
-                            loader_ctx->p_code_compiled;
-                    }
+                    (loader_ctx->frame_csp - 1)->code_compiled =
+                        loader_ctx->p_code_compiled;
                 }
                 else if (opcode == WASM_OP_IF) {
                     /* If block has parameters, we should make sure they are in
@@ -5759,19 +5763,11 @@ re_scan:
                     uint32 block_param_count = 0, block_ret_count = 0;
                     uint8 *block_param_types = NULL, *block_ret_types = NULL;
                     BlockType *cur_block_type = &cur_block->block_type;
-                    if (cur_block_type->is_value_type) {
-                        if (cur_block_type->u.value_type != VALUE_TYPE_VOID) {
-                            block_ret_count = 1;
-                            block_ret_types = &cur_block_type->u.value_type;
-                        }
-                    }
-                    else {
-                        block_param_count = cur_block_type->u.type->param_count;
-                        block_ret_count = cur_block_type->u.type->result_count;
-                        block_param_types = cur_block_type->u.type->types;
-                        block_ret_types =
-                            cur_block_type->u.type->types + block_param_count;
-                    }
+
+                    block_param_count = block_type_get_param_types(
+                        cur_block_type, &block_param_types);
+                    block_ret_count = block_type_get_result_types(
+                        cur_block_type, &block_ret_types);
                     bh_assert(block_param_count == block_ret_count
                               && (!block_param_count
                                   || !memcmp(block_param_types, block_ret_types,
@@ -5941,7 +5937,7 @@ re_scan:
             case WASM_OP_RETURN_CALL:
 #endif
             {
-                WASMType *func_type;
+                WASMFuncType *func_type;
                 uint32 func_idx;
                 int32 idx;
 
@@ -6013,7 +6009,7 @@ re_scan:
 #endif
             {
                 int32 idx;
-                WASMType *func_type;
+                WASMFuncType *func_type;
                 uint32 type_idx, table_idx;
 
                 bh_assert(module->import_table_count + module->table_count > 0);
@@ -6099,8 +6095,7 @@ re_scan:
                             && !cur_block->is_stack_polymorphic));
 
                 if (available_stack_cell > 0) {
-                    if (is_32bit_type(*(loader_ctx->frame_ref - 1))
-                        || *(loader_ctx->frame_ref - 1) == VALUE_TYPE_ANY) {
+                    if (is_32bit_type(*(loader_ctx->frame_ref - 1))) {
                         loader_ctx->frame_ref--;
                         loader_ctx->stack_cell_num--;
 #if WASM_ENABLE_FAST_INTERP != 0
