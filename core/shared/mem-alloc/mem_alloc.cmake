@@ -11,13 +11,7 @@ if (WAMR_BUILD_GC_VERIFY EQUAL 1)
 endif ()
 
 if (NOT DEFINED WAMR_BUILD_GC_CORRUPTION_CHECK)
-    # Disable memory allocator heap corruption check
-    # when GC is enabled
-    if (WAMR_BUILD_GC EQUAL 1)
-        set (WAMR_BUILD_GC_CORRUPTION_CHECK 0)
-    else ()
-        set (WAMR_BUILD_GC_CORRUPTION_CHECK 1)
-    endif ()
+    set (WAMR_BUILD_GC_CORRUPTION_CHECK 1)
 endif ()
 
 if (WAMR_BUILD_GC_CORRUPTION_CHECK EQUAL 0)
