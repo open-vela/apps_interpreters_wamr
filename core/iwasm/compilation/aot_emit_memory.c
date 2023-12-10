@@ -338,7 +338,7 @@ fail:
         }                                                               \
     } while (0)
 
-#if WASM_ENABLE_SHARED_MEMORY != 0 || WASM_ENABLE_STRINGREF != 0
+#if WASM_ENABLE_SHARED_MEMORY != 0
 bool
 check_memory_alignment(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
                        LLVMValueRef addr, uint32 align)
@@ -376,9 +376,7 @@ check_memory_alignment(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
 fail:
     return false;
 }
-#endif /* WASM_ENABLE_SHARED_MEMORY != 0 || WASM_ENABLE_STRINGREF != 0 */
 
-#if WASM_ENABLE_SHARED_MEMORY != 0
 #define BUILD_ATOMIC_LOAD(align, data_type)                                \
     do {                                                                   \
         if (!(check_memory_alignment(comp_ctx, func_ctx, maddr, align))) { \
@@ -876,8 +874,9 @@ fail:
     return false;
 }
 
-#if WASM_ENABLE_BULK_MEMORY != 0 || WASM_ENABLE_STRINGREF != 0
-LLVMValueRef
+#if WASM_ENABLE_BULK_MEMORY != 0
+
+static LLVMValueRef
 check_bulk_memory_overflow(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
                            LLVMValueRef offset, LLVMValueRef bytes)
 {
@@ -972,9 +971,7 @@ check_bulk_memory_overflow(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
 fail:
     return NULL;
 }
-#endif /* end of WASM_ENABLE_BULK_MEMORY != 0 or WASM_ENABLE_STRINGREF != 0 */
 
-#if WASM_ENABLE_BULK_MEMORY != 0
 bool
 aot_compile_op_memory_init(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
                            uint32 seg_index)
@@ -1507,7 +1504,7 @@ aot_compile_op_atomic_wait(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
 #if WASM_ENABLE_THREAD_MGR != 0
     /* Insert suspend check point */
     if (comp_ctx->enable_thread_mgr) {
-        if (!check_suspend_flags(comp_ctx, func_ctx, false))
+        if (!check_suspend_flags(comp_ctx, func_ctx))
             return false;
     }
 #endif
