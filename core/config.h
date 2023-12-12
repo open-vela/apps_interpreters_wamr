@@ -290,6 +290,11 @@
 #define WASM_ENABLE_SIMD 0
 #endif
 
+/* GC performance profiling */
+#ifndef WASM_ENABLE_GC_PERF_PROFILING
+#define WASM_ENABLE_GC_PERF_PROFILING 0
+#endif
+
 /* Memory profiling */
 #ifndef WASM_ENABLE_MEMORY_PROFILING
 #define WASM_ENABLE_MEMORY_PROFILING 0
@@ -308,6 +313,16 @@
 /* Dump call stack */
 #ifndef WASM_ENABLE_DUMP_CALL_STACK
 #define WASM_ENABLE_DUMP_CALL_STACK 0
+#endif
+
+/* AOT stack frame */
+#ifndef WASM_ENABLE_AOT_STACK_FRAME
+#define WASM_ENABLE_AOT_STACK_FRAME 0
+#endif
+
+/* JIT stack frame */
+#ifndef WASM_ENABLE_JIT_STACK_FRAME
+#define WASM_ENABLE_JIT_STACK_FRAME 0
 #endif
 
 /* Heap verification */
@@ -372,6 +387,13 @@
 #endif
 #define APP_HEAP_SIZE_MIN (256)
 #define APP_HEAP_SIZE_MAX (512 * 1024 * 1024)
+
+/* Default min/max gc heap size of each app */
+#ifndef GC_HEAP_SIZE_DEFAULT
+#define GC_HEAP_SIZE_DEFAULT (128 * 1024)
+#endif
+#define GC_HEAP_SIZE_MIN (4 * 1024)
+#define GC_HEAP_SIZE_MAX (1024 * 1024 * 1024)
 
 /* Default wasm stack size of each app */
 #if defined(BUILD_TARGET_X86_64) || defined(BUILD_TARGET_AMD_64)
@@ -446,6 +468,30 @@
 #define WASM_ENABLE_REF_TYPES 0
 #endif
 
+#ifndef WASM_ENABLE_GC
+#define WASM_ENABLE_GC 0
+#endif
+
+#ifndef WASM_CONST_EXPR_STACK_SIZE
+#if WASM_ENABLE_GC != 0
+#define WASM_CONST_EXPR_STACK_SIZE 8
+#else
+#define WASM_CONST_EXPR_STACK_SIZE 4
+#endif
+#endif
+
+#ifndef WASM_ENABLE_STRINGREF
+#define WASM_ENABLE_STRINGREF 0
+#endif
+
+#ifndef GC_REFTYPE_MAP_SIZE_DEFAULT
+#define GC_REFTYPE_MAP_SIZE_DEFAULT 64
+#endif
+
+#ifndef GC_RTTOBJ_MAP_SIZE_DEFAULT
+#define GC_RTTOBJ_MAP_SIZE_DEFAULT 64
+#endif
+
 #ifndef WASM_ENABLE_SGX_IPFS
 #define WASM_ENABLE_SGX_IPFS 0
 #endif
@@ -488,6 +534,10 @@
 /* The max number of module instance contexts. */
 #ifndef WASM_MAX_INSTANCE_CONTEXTS
 #define WASM_MAX_INSTANCE_CONTEXTS 8
+#endif
+
+#ifndef WASM_TABLE_MAX_SIZE
+#define WASM_TABLE_MAX_SIZE 1024
 #endif
 
 #endif /* end of _CONFIG_H_ */
