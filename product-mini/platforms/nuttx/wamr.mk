@@ -11,7 +11,12 @@ STDLIB_ROOT := wamr/runtime-library/stdlib
 STRUCT_DYN_ROOT := wamr/runtime-library/struct-dyn
 UTILS_ROOT := wamr/runtime-library/utils
 RUNTIMELIB_ROOT := wamr/runtime-library
-LIBDYNTYPE_DYNAMIC_DIR := ${DYNTYPE_ROOT}/dynamic
+ifeq ($(CONFIG_USE_SIMPLE_LIBDYNTYPE), y)
+CFLAGS += -DUSE_SIMPLE_LIBDYNTYPE=1
+LIBDYNTYPE_DYNAMIC_DIR := ${DYNTYPE_ROOT}/dynamic-simple
+else
+LIBDYNTYPE_DYNAMIC_DIR := ${DYNTYPE_ROOT}/dynamic-qjs
+endif
 LIBDYNTYPE_EXTREF_DIR := ${DYNTYPE_ROOT}/extref
 STRUCT_INDIRECT_DIR := ${RUNTIMELIB_ROOT}/struct-indirect
 STRINGREF_DIR := ${RUNTIMELIB_ROOT}/stringref
@@ -453,7 +458,6 @@ CSRCS += nuttx_platform.c \
          wasm_c_api.c \
          context.c \
          fallback.c \
-         object.c \
          extref.c \
          libdyntype.c \
          lib_dyntype_wrapper.c \
@@ -465,6 +469,12 @@ CSRCS += nuttx_platform.c \
          object_utils.c \
          lib_struct_indirect.c \
          stringref_qjs.c \
+
+ifeq ($(CONFIG_USE_SIMPLE_LIBDYNTYPE), y)
+CSRCS += dyn_value.c 
+else
+CSRCS += object.c 
+endif
 
 ASRCS += $(INVOKE_NATIVE)
 
