@@ -11,7 +11,7 @@ STDLIB_ROOT := wamr/runtime-library/stdlib
 STRUCT_DYN_ROOT := wamr/runtime-library/struct-dyn
 UTILS_ROOT := wamr/runtime-library/utils
 RUNTIMELIB_ROOT := wamr/runtime-library
-ifeq ($(CONFIG_USE_SIMPLE_LIBDYNTYPE), y)
+ifeq ($(CONFIG_INTERPRETERS_WAMR_USE_SIMPLE_LIBDYNTYPE), y)
 CFLAGS += -DUSE_SIMPLE_LIBDYNTYPE=1
 LIBDYNTYPE_DYNAMIC_DIR := ${DYNTYPE_ROOT}/dynamic-simple
 else
@@ -475,7 +475,7 @@ CSRCS += ${SHARED_ROOT}/platform/nuttx/nuttx_platform.c \
          ${UTILS_ROOT}/object_utils.c \
          ${STRUCT_INDIRECT_DIR}/lib_struct_indirect.c
 
-ifeq ($(CONFIG_USE_SIMPLE_LIBDYNTYPE), y)
+ifeq ($(CONFIG_INTERPRETERS_WAMR_USE_SIMPLE_LIBDYNTYPE), y)
 CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn_value.c
 CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value/dyn_value.c
 CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value/class/date.c
