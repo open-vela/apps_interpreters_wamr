@@ -463,6 +463,7 @@ CSRCS += ${SHARED_ROOT}/platform/nuttx/nuttx_platform.c \
          ${IWASM_ROOT}/common/wasm_c_api.c \
          ${LIBDYNTYPE_DYNAMIC_DIR}/context.c \
          ${LIBDYNTYPE_DYNAMIC_DIR}/fallback.c \
+         ${LIBDYNTYPE_DYNAMIC_DIR}/object.c \
          ${LIBDYNTYPE_EXTREF_DIR}/extref.c \
          ${DYNTYPE_ROOT}/libdyntype.c \
          ${DYNTYPE_ROOT}/lib_dyntype_wrapper.c \
@@ -476,9 +477,13 @@ CSRCS += ${SHARED_ROOT}/platform/nuttx/nuttx_platform.c \
 
 ifeq ($(CONFIG_USE_SIMPLE_LIBDYNTYPE), y)
 CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn_value.c
+CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value/dyn_value.c
+CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value/class/date.c
+CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value/class/dyn_class.c
+CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value/class/object.c
+CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value/class/string.c
 CSRCS += ${STRINGREF_DIR}/stringref_simple.c
 else
-CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/object.c
 CSRCS += ${STRINGREF_DIR}/stringref_qjs.c
 endif
 
