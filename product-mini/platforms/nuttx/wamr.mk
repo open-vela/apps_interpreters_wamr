@@ -483,6 +483,7 @@ CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value/class/dyn_class.c
 CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value/class/object.c
 CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value/class/string.c
 CSRCS += ${STRINGREF_DIR}/stringref_simple.c
+CFLAGS += -I${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value
 else
 CSRCS += ${STRINGREF_DIR}/stringref_qjs.c
 endif
