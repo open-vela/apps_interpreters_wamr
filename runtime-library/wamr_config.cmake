@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #
 
-set (WAMR_DIR ${CMAKE_CURRENT_LIST_DIR}/deps/wamr-gc)
+set (WAMR_DIR ${CMAKE_CURRENT_LIST_DIR}/../)
 
 set (WAMR_BUILD_PLATFORM "linux")
 
