@@ -476,7 +476,6 @@ CSRCS += ${SHARED_ROOT}/platform/nuttx/nuttx_platform.c \
          ${STRUCT_INDIRECT_DIR}/lib_struct_indirect.c
 
 ifeq ($(CONFIG_INTERPRETERS_WAMR_USE_SIMPLE_LIBDYNTYPE), y)
-CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn_value.c
 CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value/dyn_value.c
 CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value/class/date.c
 CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value/class/dyn_class.c
