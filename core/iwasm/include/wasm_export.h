@@ -175,12 +175,12 @@ typedef struct RuntimeInitArgs {
     /**
      * If enabled
      * - llvm-jit will output a jitdump file for `perf inject`
-     * - aot. TBD
+     * - aot will output a perf-${pid}.map for `perf record`
      * - fast-jit. TBD
      * - multi-tier-jit. TBD
      * - interpreter. TBD
      */
-    bool linux_perf_support;
+    bool enable_linux_perf;
 } RuntimeInitArgs;
 
 #ifndef WASM_VALKIND_T_DEFINED
@@ -246,8 +246,8 @@ WASM_RUNTIME_API_EXTERN bool
 wasm_runtime_full_init(RuntimeInitArgs *init_args);
 
 /**
- * Set the log level. To be called after the runtime is initialized. 
- * 
+ * Set the log level. To be called after the runtime is initialized.
+ *
  * @param level the log level to set
  */
 WASM_RUNTIME_API_EXTERN void
