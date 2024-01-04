@@ -12097,6 +12097,9 @@ re_scan:
                             goto fail;
                         }
                     }
+                    else {
+                        block->available_param_num = 0;
+                    }
 
                     ref_type = *(loader_ctx->frame_ref - 1);
 #if WASM_ENABLE_FAST_INTERP != 0
