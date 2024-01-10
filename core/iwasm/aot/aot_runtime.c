@@ -56,6 +56,13 @@ bh_static_assert(sizeof(AOTMemoryInstance) == 120);
 bh_static_assert(offsetof(AOTTableInstance, elems) == 24);
 
 bh_static_assert(offsetof(AOTModuleInstanceExtra, stack_sizes) == 0);
+bh_static_assert(offsetof(AOTModuleInstanceExtra, common.c_api_func_imports)
+                 == sizeof(uint64));
+
+bh_static_assert(sizeof(CApiFuncImport) == sizeof(uintptr_t) * 3);
+
+bh_static_assert(sizeof(wasm_val_t) == 16);
+bh_static_assert(offsetof(wasm_val_t, of) == 8);
 
 bh_static_assert(sizeof(CApiFuncImport) == sizeof(uintptr_t) * 3);
 
