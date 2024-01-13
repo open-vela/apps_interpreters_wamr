@@ -25,6 +25,7 @@
         }                                                  \
     } while (0)
 
+#if WASM_ENABLE_LOAD_CUSTOM_SECTION != 0
 static bool
 check_utf8_str(const uint8 *str, uint32 len)
 {
@@ -89,6 +90,7 @@ check_utf8_str(const uint8 *str, uint32 len)
     }
     return (p == p_end);
 }
+#endif /* end of WASM_ENABLE_LOAD_CUSTOM_SECTION != 0 */
 
 /* Internal function in object file */
 typedef struct AOTObjectFunc {
@@ -1428,6 +1430,7 @@ static union {
         EMIT_BUF(s, str_len);                         \
     } while (0)
 
+#if WASM_ENABLE_LOAD_CUSTOM_SECTION != 0
 static bool
 read_leb(uint8 **p_buf, const uint8 *buf_end, uint32 maxbits, bool sign,
          uint64 *p_result)
@@ -1626,6 +1629,7 @@ get_name_section_size(AOTCompData *comp_data)
 fail:
     return 0;
 }
+#endif /* end of WASM_ENABLE_LOAD_CUSTOM_SECTION != 0 */
 
 #if WASM_ENABLE_STRINGREF != 0
 static uint32
@@ -2733,6 +2737,7 @@ aot_emit_native_symbol(uint8 *buf, uint8 *buf_end, uint32 *p_offset,
     return true;
 }
 
+#if WASM_ENABLE_LOAD_CUSTOM_SECTION != 0
 static bool
 aot_emit_name_section(uint8 *buf, uint8 *buf_end, uint32 *p_offset,
                       AOTCompData *comp_data, AOTCompContext *comp_ctx)
@@ -2758,6 +2763,7 @@ aot_emit_name_section(uint8 *buf, uint8 *buf_end, uint32 *p_offset,
     LOG_DEBUG("emit name section");
     return true;
 }
+#endif
 
 #if WASM_ENABLE_STRINGREF != 0
 static bool
