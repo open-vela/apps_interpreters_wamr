@@ -3966,8 +3966,7 @@ resolve_execute_mode(const uint8 *buf, uint32 size, bool *p_mode,
     p += 8;
     while (p < p_end) {
         read_uint32(p, p_end, section_type);
-        if (section_type <= AOT_SECTION_TYPE_SIGANATURE
-            || section_type == AOT_SECTION_TYPE_TARGET_INFO) {
+        if (section_type <= AOT_SECTION_TYPE_SIGANATURE) {
             read_uint32(p, p_end, section_size);
             CHECK_BUF(p, p_end, section_size);
             if (section_type == AOT_SECTION_TYPE_TARGET_INFO) {
@@ -3982,7 +3981,7 @@ resolve_execute_mode(const uint8 *buf, uint32 size, bool *p_mode,
                 break;
             }
         }
-        else if (section_type > AOT_SECTION_TYPE_SIGANATURE) {
+        else { /* section_type > AOT_SECTION_TYPE_SIGANATURE */
             set_error_buf(error_buf, error_buf_size,
                           "resolve execute mode failed");
             break;
