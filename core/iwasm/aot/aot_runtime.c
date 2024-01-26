@@ -3589,8 +3589,7 @@ aot_free_frame(WASMExecEnv *exec_env)
 
     /* parent function */
     if (prev_frame)
-        prev_frame->func_perf_prof_info->children_exec_time =
-            cur_frame->func_perf_prof_info->total_exec_time;
+        prev_frame->func_perf_prof_info->children_exec_time += elapsed;
 #endif
 
     wasm_exec_env_free_wasm_frame(exec_env, cur_frame);
