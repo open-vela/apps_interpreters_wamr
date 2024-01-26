@@ -1619,6 +1619,10 @@ aot_instantiate(AOTModule *module, AOTModuleInstance *parent,
                           "failed to allocate bitmaps");
             goto fail;
         }
+        for (i = 0; i < module->mem_init_data_count; i++) {
+            if (!module->mem_init_data_list[i]->is_passive)
+                bh_bitmap_set_bit(common->data_dropped, i);
+        }
     }
 #endif
 #if WASM_ENABLE_REF_TYPES != 0
@@ -1629,6 +1633,10 @@ aot_instantiate(AOTModule *module, AOTModuleInstance *parent,
             set_error_buf(error_buf, error_buf_size,
                           "failed to allocate bitmaps");
             goto fail;
+        }
+        for (i = 0; i < module->table_init_data_count; i++) {
+            if (wasm_elem_is_active(module->table_init_data_list[i]->mode))
+                bh_bitmap_set_bit(common->elem_dropped, i);
         }
     }
 #endif
@@ -3272,6 +3280,7 @@ aot_table_init(AOTModuleInstance *module_inst, uint32 tbl_idx,
 {
     AOTTableInstance *tbl_inst;
     AOTTableInitData *tbl_seg;
+    uint32 *tbl_seg_elems = NULL, tbl_seg_len = 0;
     const AOTModule *module = (AOTModule *)module_inst->module;
     table_elem_type_t *table_elems;
     InitializerExpression *init_values;
