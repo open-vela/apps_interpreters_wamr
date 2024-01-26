@@ -4964,7 +4964,6 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                             data = NULL;
                         }
                         else {
-
                             seg_len =
                                 (uint64)module->module->data_segments[segment]
                                     ->data_length;
@@ -5063,8 +5062,10 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                         s = (uint32)POP_I32();
                         d = (uint32)POP_I32();
 
-                        if (offset_len_out_of_bounds(
-                                s, n,
+                        if (!bh_bitmap_get_bit(module->e->common.elem_dropped,
+                                               elem_idx)) {
+                            /* table segment isn't dropped */
+                            tbl_seg_elems =
                                 module->module->table_segments[elem_idx]
                                     .value_count)
                             || offset_len_out_of_bounds(d, n,

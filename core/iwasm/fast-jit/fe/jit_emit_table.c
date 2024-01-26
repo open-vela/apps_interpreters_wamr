@@ -90,7 +90,7 @@ fail:
 }
 
 static int
-wasm_init_table(WASMModuleInstance *inst, uint32 tbl_idx, uint32 elem_idx,
+wasm_init_table(WASMModuleInstance *inst, uint32 tbl_idx, uint32 seg_idx,
                 uint32 dst_offset, uint32 len, uint32 src_offset)
 {
     WASMTableInstance *tbl;

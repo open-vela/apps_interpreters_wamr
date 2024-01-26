@@ -1959,6 +1959,10 @@ wasm_instantiate(WASMModule *module, WASMModuleInstance *parent,
                           "failed to allocate bitmaps");
             goto fail;
         }
+        for (i = 0; i < module->data_seg_count; i++) {
+            if (!module->data_segments[i]->is_passive)
+                bh_bitmap_set_bit(module_inst->e->common.data_dropped, i);
+        }
     }
 #endif
 #if WASM_ENABLE_REF_TYPES != 0
@@ -1970,6 +1974,10 @@ wasm_instantiate(WASMModule *module, WASMModuleInstance *parent,
             set_error_buf(error_buf, error_buf_size,
                           "failed to allocate bitmaps");
             goto fail;
+        }
+        for (i = 0; i < module->table_seg_count; i++) {
+            if (wasm_elem_is_active(module->table_segments[i].mode))
+                bh_bitmap_set_bit(module_inst->e->common.elem_dropped, i);
         }
     }
 #endif
