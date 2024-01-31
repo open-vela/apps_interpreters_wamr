@@ -1750,6 +1750,20 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                 goto call_func_from_interp;
             }
 
+#if WASM_ENABLE_EXCE_HANDLING != 0
+            HANDLE_OP(WASM_OP_TRY)
+            HANDLE_OP(WASM_OP_CATCH)
+            HANDLE_OP(WASM_OP_THROW)
+            HANDLE_OP(WASM_OP_RETHROW)
+            HANDLE_OP(WASM_OP_DELEGATE)
+            HANDLE_OP(WASM_OP_CATCH_ALL)
+            HANDLE_OP(EXT_OP_TRY)
+            {
+                wasm_set_exception(module, "unsupported opcode");
+                goto got_exception;
+            }
+#endif
+
             /* parametric instructions */
             HANDLE_OP(WASM_OP_SELECT)
             {
@@ -5657,10 +5671,6 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 #endif
 
 #if WASM_ENABLE_LABELS_AS_VALUES != 0
-        HANDLE_OP(WASM_OP_UNUSED_0x06)
-        HANDLE_OP(WASM_OP_UNUSED_0x07)
-        HANDLE_OP(WASM_OP_UNUSED_0x08)
-        HANDLE_OP(WASM_OP_UNUSED_0x09)
         HANDLE_OP(WASM_OP_UNUSED_0x0a)
 #if WASM_ENABLE_TAIL_CALL == 0
         HANDLE_OP(WASM_OP_RETURN_CALL)
@@ -5691,8 +5701,6 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 #endif
         HANDLE_OP(WASM_OP_UNUSED_0x16)
         HANDLE_OP(WASM_OP_UNUSED_0x17)
-        HANDLE_OP(WASM_OP_UNUSED_0x18)
-        HANDLE_OP(WASM_OP_UNUSED_0x19)
         HANDLE_OP(WASM_OP_UNUSED_0x27)
         /* optimized op code */
         HANDLE_OP(WASM_OP_F32_STORE)
