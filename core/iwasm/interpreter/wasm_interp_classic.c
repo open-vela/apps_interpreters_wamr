@@ -610,6 +610,18 @@ wasm_interp_get_frame_ref(WASMInterpFrame *frame)
     } while (0)
 #endif
 
+#if WASM_ENABLE_EXCE_HANDLING != 0
+/* unwind the CSP to a given label and optionally modify the labeltype  */
+#define UNWIND_CSP(N, T)                                                   \
+    do {                                                                   \
+        /* unwind to function frame  */                                    \
+        frame_csp -= N;                                                    \
+        /* drop handlers and values pushd in try block */                  \
+        frame_sp = (frame_csp - 1)->frame_sp;                              \
+        (frame_csp - 1)->label_type = T ? T : (frame_csp - 1)->label_type; \
+    } while (0)
+#endif
+
 #define SYNC_ALL_TO_FRAME()     \
     do {                        \
         frame->sp = frame_sp;   \
