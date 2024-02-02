@@ -3,6 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
  */
 
+#if !defined(_GNU_SOURCE) && WASM_HAVE_MREMAP != 0
+/* Enable mremap */
+#define _GNU_SOURCE
+#include "bh_memutils.h"
+#endif
+
 #include "platform_api_vmcore.h"
 
 #if defined(__APPLE__) || defined(__MACH__)
