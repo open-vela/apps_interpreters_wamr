@@ -512,6 +512,7 @@ CSRCS += ${SHARED_ROOT}/platform/nuttx/nuttx_platform.c \
 ASRCS += $(INVOKE_NATIVE)
 
 VPATH += $(SHARED_ROOT)/platform/nuttx
+VPATH += $(SHARED_ROOT)/platform/common/memory
 VPATH += $(SHARED_ROOT)/platform/common/posix
 VPATH += $(SHARED_ROOT)/platform/common/libc-util
 VPATH += $(SHARED_ROOT)/mem-alloc
