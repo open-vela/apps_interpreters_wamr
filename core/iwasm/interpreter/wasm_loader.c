@@ -6269,6 +6269,8 @@ check_wasi_abi_compatibility(const WASMModule *module,
     /* clang-format on */
 
     WASMExport *initialize = NULL, *memory = NULL, *start = NULL;
+    uint32 import_function_count = module->import_function_count;
+    WASMType *func_type;
 
     /* (func (export "_start") (...) */
     start = wasm_loader_find_export(module, "", "_start", EXPORT_KIND_FUNC,
@@ -6288,6 +6290,7 @@ check_wasi_abi_compatibility(const WASMModule *module,
         initialize =
             wasm_loader_find_export(module, "", "_initialize", EXPORT_KIND_FUNC,
                                     error_buf, error_buf_size);
+
         if (initialize) {
             WASMFuncType *func_type =
                 module
