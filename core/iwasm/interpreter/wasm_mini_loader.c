@@ -6795,7 +6795,6 @@ re_scan:
             {
                 p_org = p - 1;
                 GET_LOCAL_INDEX_TYPE_AND_OFFSET();
-                POP_TYPE(local_type);
 
 #if WASM_ENABLE_FAST_INTERP != 0
                 if (!(preserve_referenced_local(
@@ -6849,6 +6848,7 @@ re_scan:
                 }
 #endif
 #endif
+                POP_TYPE(local_type);
                 break;
             }
 
