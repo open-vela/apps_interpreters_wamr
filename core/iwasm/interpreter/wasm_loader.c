@@ -1982,6 +1982,16 @@ load_type_section(const uint8 *buf, const uint8 *buf_end, WASMModule *module,
             type->quick_aot_entry = wasm_native_lookup_quick_aot_entry(type);
 #endif
 
+#if WASM_ENABLE_WAMR_COMPILER != 0
+            for (j = 0; j < type->param_count + type->result_count; j++) {
+                if (type->types[j] == VALUE_TYPE_V128)
+                    module->is_simd_used = true;
+                else if (type->types[j] == VALUE_TYPE_FUNCREF
+                         || type->types[j] == VALUE_TYPE_EXTERNREF)
+                    module->is_ref_types_used = true;
+            }
+#endif
+
             /* If there is already a same type created, use it instead */
             for (j = 0; j < i; j++) {
                 if (wasm_type_equal(type, module->types[j], module->types, i)) {
@@ -2444,7 +2454,7 @@ wasm_loader_resolve_tag(const char *module_name, const char *tag_name,
 
     return tag;
 }
-#endif
+#endif /* end of WASM_ENABLE_TAGS != 0 */
 #endif /* end of WASM_ENABLE_MULTI_MODULE */
 
 static bool
@@ -2667,6 +2677,10 @@ load_table_import(const uint8 **p_buf, const uint8 *buf_end,
     table->flags = declare_max_size_flag;
     table->max_size = declare_max_size;
 
+#if WASM_ENABLE_WAMR_COMPILER != 0
+    if (table->elem_type == VALUE_TYPE_EXTERNREF)
+        parent_module->is_ref_types_used = true;
+#endif
     (void)parent_module;
     return true;
 fail:
@@ -2898,7 +2912,7 @@ load_tag_import(const uint8 **p_buf, const uint8 *buf_end,
 fail:
     return false;
 }
-#endif
+#endif /* end of WASM_ENABLE_TAGS != 0 */
 
 static bool
 load_global_import(const uint8 **p_buf, const uint8 *buf_end,
@@ -2991,6 +3005,12 @@ load_global_import(const uint8 **p_buf, const uint8 *buf_end,
     global->type = declare_type;
     global->is_mutable = (declare_mutable == 1);
 
+#if WASM_ENABLE_WAMR_COMPILER != 0
+    if (global->type == VALUE_TYPE_V128)
+        parent_module->is_simd_used = true;
+    else if (global->type == VALUE_TYPE_EXTERNREF)
+        parent_module->is_ref_types_used = true;
+#endif
     (void)parent_module;
     (void)ret;
     return true;
@@ -3077,6 +3097,11 @@ load_table(const uint8 **p_buf, const uint8 *buf_end, WASMModule *module,
     }
 
     adjust_table_max_size(table->init_size, table->flags, &table->max_size);
+
+#if WASM_ENABLE_WAMR_COMPILER != 0
+    if (table->elem_type == VALUE_TYPE_EXTERNREF)
+        module->is_ref_types_used = true;
+#endif
 
     *p_buf = p;
     return true;
@@ -3223,11 +3248,14 @@ load_import_section(const uint8 *buf, const uint8 *buf_end, WASMModule *module,
 
 #if WASM_ENABLE_REF_TYPES == 0 && WASM_ENABLE_GC == 0
                     if (module->import_table_count > 1) {
+#if WASM_ENABLE_REF_TYPES == 0 && WASM_ENABLE_GC == 0
                         set_error_buf(error_buf, error_buf_size,
                                       "multiple tables");
                         return false;
-                    }
+#elif WASM_ENABLE_WAMR_COMPILER != 0
+                        module->is_ref_types_used = true;
 #endif
+                    }
                     break;
 
                 case IMPORT_KIND_MEMORY: /* import memory */
@@ -3666,6 +3694,13 @@ load_function_section(const uint8 *buf, const uint8 *buf_end,
                 for (k = 0; k < sub_local_count; k++) {
                     func->local_types[local_type_index++] = type;
                 }
+#if WASM_ENABLE_WAMR_COMPILER != 0
+                if (type == VALUE_TYPE_V128)
+                    module->is_simd_used = true;
+                else if (type == VALUE_TYPE_FUNCREF
+                         || type == VALUE_TYPE_EXTERNREF)
+                    module->is_ref_types_used = true;
+#endif
             }
 
             bh_assert(local_type_index == func->local_count);
@@ -3731,11 +3766,14 @@ load_table_section(const uint8 *buf, const uint8 *buf_end, WASMModule *module,
     read_leb_uint32(p, p_end, table_count);
 #if WASM_ENABLE_REF_TYPES == 0 && WASM_ENABLE_GC == 0
     if (module->import_table_count + table_count > 1) {
+#if WASM_ENABLE_REF_TYPES == 0 && WASM_ENABLE_GC == 0
         /* a total of one table is allowed */
         set_error_buf(error_buf, error_buf_size, "multiple tables");
         return false;
-    }
+#elif WASM_ENABLE_WAMR_COMPILER != 0
+        module->is_ref_types_used = true;
 #endif
+    }
 
     if (table_count) {
         module->table_count = table_count;
@@ -4463,6 +4501,11 @@ load_table_segment_section(const uint8 *buf, const uint8 *buf_end,
                                      error_buf, error_buf_size))
                 return false;
 #endif /* WASM_ENABLE_REF_TYPES != 0 */
+
+#if WASM_ENABLE_WAMR_COMPILER != 0
+            if (table_segment->elem_type == VALUE_TYPE_EXTERNREF)
+                module->is_ref_types_used = true;
+#endif
         }
     }
 
@@ -4519,6 +4562,9 @@ load_data_segment_section(const uint8 *buf, const uint8 *buf_end,
             switch (mem_flag) {
                 case 0x01:
                     is_passive = true;
+#if WASM_ENABLE_WAMR_COMPILER != 0
+                    module->is_bulk_memory_used = true;
+#endif
                     break;
                 case 0x00:
                     /* no memory index, treat index as 0 */
@@ -4527,6 +4573,9 @@ load_data_segment_section(const uint8 *buf, const uint8 *buf_end,
                 case 0x02:
                     /* read following memory index */
                     read_leb_uint32(p, p_end, mem_index);
+#if WASM_ENABLE_WAMR_COMPILER != 0
+                    module->is_bulk_memory_used = true;
+#endif
                 check_mem_index:
                     if (mem_index
                         >= module->import_memory_count + module->memory_count) {
@@ -4612,6 +4661,9 @@ load_datacount_section(const uint8 *buf, const uint8 *buf_end,
         return false;
     }
 
+#if WASM_ENABLE_WAMR_COMPILER != 0
+    module->is_bulk_memory_used = true;
+#endif
     LOG_VERBOSE("Load datacount section success.\n");
     return true;
 fail:
@@ -4694,7 +4746,7 @@ load_tag_section(const uint8 *buf, const uint8 *buf_end, const uint8 *buf_code,
 fail:
     return false;
 }
-#endif
+#endif /* end of WASM_ENABLE_TAGS != 0 */
 
 static bool
 load_code_section(const uint8 *buf, const uint8 *buf_end, const uint8 *buf_func,
@@ -6078,6 +6130,11 @@ static uint8 section_ids[] = {
     SECTION_TYPE_STRINGREF,
 #endif
 #endif
+#if WASM_ENABLE_STRINGREF != 0
+    /* must immediately precede the global section,
+       or where the global section would be */
+    SECTION_TYPE_STRINGREF,
+#endif
     SECTION_TYPE_GLOBAL,
     SECTION_TYPE_EXPORT,
     SECTION_TYPE_START,
@@ -6270,7 +6327,7 @@ check_wasi_abi_compatibility(const WASMModule *module,
 
     WASMExport *initialize = NULL, *memory = NULL, *start = NULL;
     uint32 import_function_count = module->import_function_count;
-    WASMType *func_type;
+    WASMFuncType *func_type;
 
     /* (func (export "_start") (...) */
     start = wasm_loader_find_export(module, "", "_start", EXPORT_KIND_FUNC,
@@ -6374,7 +6431,8 @@ wasm_loader_load(uint8 *buf, uint32 size,
         return NULL;
     }
 
-#if WASM_ENABLE_DEBUG_INTERP != 0 || WASM_ENABLE_FAST_JIT != 0
+#if WASM_ENABLE_DEBUG_INTERP != 0 || WASM_ENABLE_FAST_JIT != 0 \
+    || WASM_ENABLE_DUMP_CALL_STACK != 0 || WASM_ENABLE_JIT != 0
     module->load_addr = (uint8 *)buf;
     module->load_size = size;
 #endif
@@ -6738,7 +6796,7 @@ wasm_loader_find_block_addr(WASMExecEnv *exec_env, BlockAddr *block_addr_cache,
                             (uint8 *)(p - 1);
                 }
                 break;
-#endif
+#endif /* end of WASM_ENABLE_EXCE_HANDLING != 0 */
 
             case WASM_OP_BLOCK:
             case WASM_OP_LOOP:
@@ -7265,8 +7323,11 @@ wasm_loader_find_block_addr(WASMExecEnv *exec_env, BlockAddr *block_addr_cache,
                 uint32 opcode1;
 
                 read_leb_uint32(p, p_end, opcode1);
+                /* opcode1 was checked in wasm_loader_prepare_bytecode and
+                   is no larger than UINT8_MAX */
+                opcode = (uint8)opcode1;
 
-                switch (opcode1) {
+                switch (opcode) {
                     case WASM_OP_I32_TRUNC_SAT_S_F32:
                     case WASM_OP_I32_TRUNC_SAT_U_F32:
                     case WASM_OP_I32_TRUNC_SAT_S_F64:
@@ -9970,7 +10031,11 @@ check_branch_block_for_delegate(WASMLoaderContext *loader_ctx, uint8 **p_buf,
      */
     bh_assert(loader_ctx->csp_num > 0);
     if (loader_ctx->csp_num - 1 <= depth) {
+#if WASM_ENABLE_SPEC_TEST == 0
         set_error_buf(error_buf, error_buf_size, "unknown delegate label");
+#else
+        set_error_buf(error_buf, error_buf_size, "unknown label");
+#endif
         goto fail;
     }
     frame_csp_tmp = loader_ctx->frame_csp - depth - 2;
@@ -9983,7 +10048,7 @@ check_branch_block_for_delegate(WASMLoaderContext *loader_ctx, uint8 **p_buf,
 fail:
     return NULL;
 }
-#endif
+#endif /* end of WASM_ENABLE_EXCE_HANDLING != 0 */
 
 static bool
 check_block_stack(WASMLoaderContext *loader_ctx, BranchBlock *block,
@@ -10779,9 +10844,9 @@ re_scan:
                 uint8 *frame_ref = loader_ctx->frame_ref;
                 for (int tti = (int32)tag_type->param_count - 1; tti >= 0;
                      tti--) {
-                    if (!check_stack_top_values(frame_ref, available_stack_cell,
-                                                tag_type->types[tti], error_buf,
-                                                error_buf_size)) {
+                    if (!check_stack_top_values(
+                            loader_ctx, frame_ref, available_stack_cell,
+                            tag_type->types[tti], error_buf, error_buf_size)) {
                         snprintf(error_buf, error_buf_size,
                                  "type mismatch: instruction requires [%s] but "
                                  "stack has [%s]",
@@ -10810,8 +10875,9 @@ re_scan:
                 SET_CUR_BLOCK_STACK_POLYMORPHIC_STATE(true);
 
                 /* check the target catching block:  LABEL_TYPE_CATCH */
-                if (!(frame_csp_tmp = check_branch_block(
-                          loader_ctx, &p, p_end, error_buf, error_buf_size)))
+                if (!(frame_csp_tmp =
+                          check_branch_block(loader_ctx, &p, p_end, false,
+                                             error_buf, error_buf_size)))
                     goto fail;
 
                 if (frame_csp_tmp->label_type != LABEL_TYPE_CATCH
@@ -10932,7 +10998,7 @@ re_scan:
                 /* catch_all has no tagtype and therefore no parameters */
                 break;
             }
-#endif
+#endif /* end of WASM_ENABLE_EXCE_HANDLING != 0 */
             case WASM_OP_ELSE:
             {
                 BranchBlock *block = NULL;
@@ -10954,6 +11020,13 @@ re_scan:
                     goto fail;
 
                 (loader_ctx->frame_csp - 1)->else_addr = p - 1;
+#if WASM_ENABLE_GC != 0
+                if (!wasm_loader_init_local_use_masks(
+                        loader_ctx, local_count, error_buf, error_buf_size)) {
+                    goto fail;
+                }
+#endif
+
 #if WASM_ENABLE_GC != 0
                 if (!wasm_loader_init_local_use_masks(
                         loader_ctx, local_count, error_buf, error_buf_size)) {
@@ -11832,6 +11905,25 @@ re_scan:
 #endif
                 PUSH_REF(type);
 
+#if WASM_ENABLE_GC != 0
+                if (need_ref_type_map) {
+                    bh_memcpy_s(&wasm_ref_type, sizeof(WASMRefType), ref_type,
+                                wasm_reftype_struct_size(ref_type));
+                }
+#endif
+                POP_REF(type);
+
+#if WASM_ENABLE_GC != 0
+                if (need_ref_type_map) {
+                    bh_memcpy_s(&wasm_ref_type, sizeof(WASMRefType), ref_type,
+                                wasm_reftype_struct_size(ref_type));
+                }
+#endif
+                PUSH_REF(type);
+
+#if WASM_ENABLE_WAMR_COMPILER != 0
+                module->is_ref_types_used = true;
+#endif
                 (void)vec_len;
                 break;
             }
@@ -11923,6 +12015,10 @@ re_scan:
                 PUSH_OFFSET_TYPE(ref_type);
 #endif
                 PUSH_TYPE(ref_type);
+
+#if WASM_ENABLE_WAMR_COMPILER != 0
+                module->is_ref_types_used = true;
+#endif
                 break;
             }
             case WASM_OP_REF_IS_NULL:
@@ -11974,6 +12070,10 @@ re_scan:
                 }
 #endif
                 PUSH_I32();
+
+#if WASM_ENABLE_WAMR_COMPILER != 0
+                module->is_ref_types_used = true;
+#endif
                 break;
             }
             case WASM_OP_REF_FUNC:
@@ -13985,6 +14085,9 @@ re_scan:
 #if WASM_ENABLE_JIT != 0 || WASM_ENABLE_WAMR_COMPILER != 0
                         func->has_memory_operations = true;
 #endif
+#if WASM_ENABLE_WAMR_COMPILER != 0
+                        module->is_bulk_memory_used = true;
+#endif
                         break;
                     }
                     case WASM_OP_DATA_DROP:
@@ -14005,6 +14108,9 @@ re_scan:
 #if WASM_ENABLE_JIT != 0 || WASM_ENABLE_WAMR_COMPILER != 0
                         func->has_memory_operations = true;
 #endif
+#if WASM_ENABLE_WAMR_COMPILER != 0
+                        module->is_bulk_memory_used = true;
+#endif
                         break;
                     }
                     case WASM_OP_MEMORY_COPY:
@@ -14024,6 +14130,9 @@ re_scan:
 #if WASM_ENABLE_JIT != 0 || WASM_ENABLE_WAMR_COMPILER != 0
                         func->has_memory_operations = true;
 #endif
+#if WASM_ENABLE_WAMR_COMPILER != 0
+                        module->is_bulk_memory_used = true;
+#endif
                         break;
                     }
                     case WASM_OP_MEMORY_FILL:
@@ -14041,6 +14150,9 @@ re_scan:
                         POP_I32();
 #if WASM_ENABLE_JIT != 0 || WASM_ENABLE_WAMR_COMPILER != 0
                         func->has_memory_operations = true;
+#endif
+#if WASM_ENABLE_WAMR_COMPILER != 0
+                        module->is_bulk_memory_used = true;
 #endif
                         break;
                     }
@@ -14111,6 +14223,10 @@ re_scan:
                         POP_I32();
                         POP_I32();
                         POP_I32();
+
+#if WASM_ENABLE_WAMR_COMPILER != 0
+                        module->is_ref_types_used = true;
+#endif
                         break;
                     }
                     case WASM_OP_ELEM_DROP:
@@ -14122,6 +14238,10 @@ re_scan:
                             goto fail;
 #if WASM_ENABLE_FAST_INTERP != 0
                         emit_uint32(loader_ctx, table_seg_idx);
+#endif
+
+#if WASM_ENABLE_WAMR_COMPILER != 0
+                        module->is_ref_types_used = true;
 #endif
                         break;
                     }
@@ -14176,6 +14296,10 @@ re_scan:
                         POP_I32();
                         POP_I32();
                         POP_I32();
+
+#if WASM_ENABLE_WAMR_COMPILER != 0
+                        module->is_ref_types_used = true;
+#endif
                         break;
                     }
                     case WASM_OP_TABLE_SIZE:
@@ -14192,6 +14316,10 @@ re_scan:
 #endif
 
                         PUSH_I32();
+
+#if WASM_ENABLE_WAMR_COMPILER != 0
+                        module->is_ref_types_used = true;
+#endif
                         break;
                     }
                     case WASM_OP_TABLE_GROW:
@@ -14245,6 +14373,10 @@ re_scan:
                             PUSH_I32();
                         else
                             POP_I32();
+
+#if WASM_ENABLE_WAMR_COMPILER != 0
+                        module->is_ref_types_used = true;
+#endif
                         break;
                     }
 #endif /* end of WASM_ENABLE_REF_TYPES != 0 || WASM_ENABLE_GC != 0 */
@@ -14262,6 +14394,11 @@ re_scan:
             case WASM_OP_SIMD_PREFIX:
             {
                 uint32 opcode1;
+
+#if WASM_ENABLE_WAMR_COMPILER != 0
+                /* Mark the SIMD instruction is used in this module */
+                module->is_simd_used = true;
+#endif
 
                 read_leb_uint32(p, p_end, opcode1);
 

@@ -121,6 +121,13 @@ typedef struct GOTItem {
 } GOTItem, *GOTItemList;
 #endif
 
+#if WASM_ENABLE_GC != 0
+typedef struct LocalRefFlag {
+    uint32 local_ref_flag_cell_num;
+    uint8 *local_ref_flags;
+} LocalRefFlag;
+#endif
+
 typedef struct AOTModule {
     uint32 module_type;
 

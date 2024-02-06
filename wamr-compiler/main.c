@@ -443,7 +443,6 @@ main(int argc, char *argv[])
         else if (!strcmp(argv[0], "--enable-multi-thread")) {
             option.enable_bulk_memory = true;
             option.enable_thread_mgr = true;
-            option.enable_ref_types = false;
         }
         else if (!strcmp(argv[0], "--enable-tail-call")) {
             option.enable_tail_call = true;

@@ -141,6 +141,9 @@ typedef void *table_elem_type_t;
 #if WASM_ENABLE_STRINGREF != 0
 #define SECTION_TYPE_STRINGREF 14
 #endif
+#if WASM_ENABLE_STRINGREF != 0
+#define SECTION_TYPE_STRINGREF 14
+#endif
 
 #define SUB_SECTION_TYPE_MODULE 0
 #define SUB_SECTION_TYPE_FUNC 1
@@ -1021,6 +1024,12 @@ struct WASMModule {
     /* The count of groups which finish compiling the fast jit
        functions in that group */
     uint32 fast_jit_ready_groups;
+#endif
+
+#if WASM_ENABLE_WAMR_COMPILER != 0
+    bool is_simd_used;
+    bool is_ref_types_used;
+    bool is_bulk_memory_used;
 #endif
 };
 
