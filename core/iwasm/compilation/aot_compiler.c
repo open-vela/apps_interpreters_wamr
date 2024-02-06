@@ -943,6 +943,10 @@ aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
     while (frame_ip < frame_ip_end) {
         opcode = *frame_ip++;
 
+        if (comp_ctx->aot_frame) {
+            comp_ctx->aot_frame->frame_ip = frame_ip - 1;
+        }
+
 #if WASM_ENABLE_DEBUG_AOT != 0
         location = dwarf_gen_location(
             comp_ctx, func_ctx,

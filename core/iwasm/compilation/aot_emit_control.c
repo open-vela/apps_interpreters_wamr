@@ -841,7 +841,6 @@ fail:
     return false;
 }
 
-#if WASM_ENABLE_THREAD_MGR != 0
 bool
 check_suspend_flags(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
                     bool check_terminate_and_suspend)
@@ -912,7 +911,6 @@ check_suspend_flags(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
 fail:
     return false;
 }
-#endif /* End of WASM_ENABLE_THREAD_MGR */
 
 bool
 aot_compile_op_br(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,

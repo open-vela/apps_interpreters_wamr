@@ -10,6 +10,7 @@
 #include "aot_emit_table.h"
 #include "../aot/aot_runtime.h"
 #include "../aot/aot_intrinsic.h"
+#include "../interpreter/wasm_runtime.h"
 
 #if WASM_ENABLE_DEBUG_AOT != 0
 #include "debug/dwarf_extractor.h"
@@ -3066,6 +3067,29 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
         }
     }
     LLVMDisposeMessage(triple);
+
+#if WASM_ENABLE_WAMR_COMPILER != 0
+    WASMModule *wasm_module = (WASMModule *)comp_data->wasm_module;
+
+    /* Return error if SIMD is disabled by command line but SIMD instructions
+     * are used */
+    if (!option->enable_simd && wasm_module->is_simd_used) {
+        aot_set_last_error("SIMD is disabled by --disable-simd but SIMD "
+                           "instructions are used in this module");
+        goto fail;
+    }
+
+    /* Disable features when they are not actually used */
+    if (!wasm_module->is_simd_used) {
+        option->enable_simd = comp_ctx->enable_simd = false;
+    }
+    if (!wasm_module->is_ref_types_used) {
+        option->enable_ref_types = comp_ctx->enable_ref_types = false;
+    }
+    if (!wasm_module->is_bulk_memory_used) {
+        option->enable_bulk_memory = comp_ctx->enable_bulk_memory = false;
+    }
+#endif
 
     if (option->enable_simd && strcmp(comp_ctx->target_arch, "x86_64") != 0
         && strncmp(comp_ctx->target_arch, "aarch64", 7) != 0) {

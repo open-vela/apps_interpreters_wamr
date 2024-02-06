@@ -2018,7 +2018,7 @@ invoke_native_with_hw_bound_check(WASMExecEnv *exec_env, void *func_ptr,
 #else /* else of OS_ENABLE_HW_BOUND_CHECK */
 static inline bool
 invoke_native_internal(WASMExecEnv *exec_env, void *func_ptr,
-                       const WASMType *func_type, const char *signature,
+                       const WASMFuncType *func_type, const char *signature,
                        void *attachment, uint32 *argv, uint32 argc,
                        uint32 *argv_ret)
 {
@@ -3212,7 +3212,6 @@ aot_table_init(AOTModuleInstance *module_inst, uint32 tbl_idx,
 {
     AOTTableInstance *tbl_inst;
     AOTTableInitData *tbl_seg;
-    uint32 *tbl_seg_elems = NULL, tbl_seg_len = 0;
     const AOTModule *module = (AOTModule *)module_inst->module;
     table_elem_type_t *table_elems;
     InitializerExpression *init_values;
@@ -3501,6 +3500,11 @@ aot_alloc_frame(WASMExecEnv *exec_env, uint32 func_index)
     }
 #endif
 
+#if WASM_ENABLE_GC != 0
+    frame->sp = frame->lp + max_local_cell_num;
+    frame->frame_ref = (uint8 *)(frame->sp + max_stack_cell_num);
+#endif
+
     frame->prev_frame = (AOTFrame *)exec_env->cur_frame;
     exec_env->cur_frame = (struct WASMInterpFrame *)frame;
 
@@ -3508,8 +3512,8 @@ aot_alloc_frame(WASMExecEnv *exec_env, uint32 func_index)
     return true;
 }
 
-void
-aot_free_frame(WASMExecEnv *exec_env)
+static inline void
+aot_free_frame_internal(WASMExecEnv *exec_env)
 {
     AOTFrame *cur_frame = (AOTFrame *)exec_env->cur_frame;
     AOTFrame *prev_frame = cur_frame->prev_frame;
@@ -3521,7 +3525,7 @@ aot_free_frame(WASMExecEnv *exec_env)
 
     /* parent function */
     if (prev_frame)
-        prev_frame->func_perf_prof_info->children_exec_time += elapsed;
+        prev_frame->func_perf_prof_info->children_exec_time += time_elapsed;
 #endif
 
     wasm_exec_env_free_wasm_frame(exec_env, cur_frame);
@@ -3684,14 +3688,14 @@ aot_dump_call_stack(WASMExecEnv *exec_env, bool print, char *buf, uint32 len)
 
         /* function name not exported, print number instead */
         if (frame.func_name_wp == NULL) {
-            line_length =
-                snprintf(line_buf, sizeof(line_buf),
-                         "#%02" PRIu32 " $f%" PRIu32 "\n", n, frame.func_index);
+            line_length = snprintf(line_buf, sizeof(line_buf),
+                                   "#%02" PRIu32 ": 0x%04x - $f%" PRIu32 "\n",
+                                   n, frame.func_offset, frame.func_index);
         }
         else {
-            line_length =
-                snprintf(line_buf, sizeof(line_buf), "#%02" PRIu32 " %s\n", n,
-                         frame.func_name_wp);
+            line_length = snprintf(line_buf, sizeof(line_buf),
+                                   "#%02" PRIu32 ": 0x%04x - %s\n", n,
+                                   frame.func_offset, frame.func_name_wp);
         }
 
         if (line_length >= sizeof(line_buf)) {

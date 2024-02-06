@@ -796,7 +796,7 @@ fail:
     return NULL;
 #endif
 }
-#endif
+#endif /* end of WASM_ENABLE_TAGS != 0 */
 
 /**
  * Destroy global instances.
@@ -1168,7 +1168,7 @@ export_tags_instantiate(const WASMModule *module,
     bh_assert((uint32)(export_tag - export_tags) == export_tag_count);
     return export_tags;
 }
-#endif
+#endif /* end of WASM_ENABLE_TAGS != 0 */
 
 #if WASM_ENABLE_MULTI_MODULE != 0
 static void
@@ -2732,8 +2732,14 @@ wasm_instantiate(WASMModule *module, WASMModuleInstance *parent,
     if (stack_size == 0)
         stack_size = DEFAULT_WASM_STACK_SIZE;
 #if WASM_ENABLE_SPEC_TEST != 0
+#if WASM_ENABLE_TAIL_CALL == 0
     if (stack_size < 128 * 1024)
         stack_size = 128 * 1024;
+#else
+    /* Some tail-call cases require large operand stack */
+    if (stack_size < 10 * 1024 * 1024)
+        stack_size = 10 * 1024 * 1024;
+#endif
 #endif
     module_inst->default_wasm_stack_size = stack_size;
 
@@ -3763,7 +3769,11 @@ wasm_interp_create_call_stack(struct WASMExecEnv *exec_env)
             frame.func_offset = 0;
         }
         else {
+#if WASM_ENABLE_FAST_INTERP == 0
+            frame.func_offset = (uint32)(cur_frame->ip - module->load_addr);
+#else
             frame.func_offset = (uint32)(cur_frame->ip - func_code_base);
+#endif
         }
 
         func_name = get_func_name_from_index(module_inst, frame.func_index);
@@ -3873,16 +3883,37 @@ wasm_interp_dump_call_stack(struct WASMExecEnv *exec_env, bool print, char *buf,
             return 0;
         }
 
-        /* function name not exported, print number instead */
-        if (frame.func_name_wp == NULL) {
-            line_length =
-                snprintf(line_buf, sizeof(line_buf),
-                         "#%02" PRIu32 " $f%" PRIu32 "\n", n, frame.func_index);
+#if WASM_ENABLE_FAST_JIT != 0
+        /* Fast JIT doesn't support committing ip (instruction pointer) yet */
+        if (module_inst->e->running_mode == Mode_Fast_JIT
+            || module_inst->e->running_mode == Mode_Multi_Tier_JIT) {
+            /* function name not exported, print number instead */
+            if (frame.func_name_wp == NULL) {
+                line_length = snprintf(line_buf, sizeof(line_buf),
+                                       "#%02" PRIu32 " $f%" PRIu32 "\n", n,
+                                       frame.func_index);
+            }
+            else {
+                line_length =
+                    snprintf(line_buf, sizeof(line_buf), "#%02" PRIu32 " %s\n",
+                             n, frame.func_name_wp);
+            }
         }
-        else {
-            line_length =
-                snprintf(line_buf, sizeof(line_buf), "#%02" PRIu32 " %s\n", n,
-                         frame.func_name_wp);
+        else
+#endif
+        {
+            /* function name not exported, print number instead */
+            if (frame.func_name_wp == NULL) {
+                line_length =
+                    snprintf(line_buf, sizeof(line_buf),
+                             "#%02" PRIu32 ": 0x%04x - $f%" PRIu32 "\n", n,
+                             frame.func_offset, frame.func_index);
+            }
+            else {
+                line_length = snprintf(line_buf, sizeof(line_buf),
+                                       "#%02" PRIu32 ": 0x%04x - %s\n", n,
+                                       frame.func_offset, frame.func_name_wp);
+            }
         }
 
         if (line_length >= sizeof(line_buf)) {
@@ -4273,7 +4304,9 @@ llvm_jit_alloc_frame(WASMExecEnv *exec_env, uint32 func_index)
     WASMInterpFrame *frame;
     uint32 size, max_local_cell_num, max_stack_cell_num;
 
-    bh_assert(exec_env->module_inst->module_type == Wasm_Module_Bytecode);
+    return wasm_create_func_obj(module_inst, func_idx, throw_exce, error_buf,
+                                error_buf_size);
+}
 
     module_inst = (WASMModuleInstance *)exec_env->module_inst;
     module = module_inst->module;
@@ -4298,9 +4331,38 @@ llvm_jit_alloc_frame(WASMExecEnv *exec_env, uint32 func_index)
     size =
         wasm_interp_interp_frame_size(max_local_cell_num + max_stack_cell_num);
 
-    frame = wasm_exec_env_alloc_wasm_frame(exec_env, size);
-    if (!frame) {
-        wasm_set_exception(module_inst, "wasm operand stack overflow");
+    return wasm_obj_is_instance_of(gc_obj, type_index, types, type_count);
+}
+
+WASMRttTypeRef
+llvm_jit_rtt_type_new(WASMModuleInstance *module_inst, uint32 type_index)
+{
+    WASMModule *module = module_inst->module;
+    WASMType *defined_type = module->types[type_index];
+    WASMRttType **rtt_types = module->rtt_types;
+    uint32 rtt_type_count = module->type_count;
+    korp_mutex *rtt_type_lock = &module->rtt_type_lock;
+
+    return wasm_rtt_type_new(defined_type, type_index, rtt_types,
+                             rtt_type_count, rtt_type_lock);
+}
+
+bool
+llvm_array_init_with_data(WASMModuleInstance *module_inst, uint32 seg_index,
+                          uint32 data_seg_offset, WASMArrayObjectRef array_obj,
+                          uint32 elem_size, uint32 array_len)
+{
+    WASMModule *wasm_module = module_inst->module;
+    WASMDataSeg *data_seg;
+    uint8 *array_elem_base;
+    uint64 total_size;
+
+    data_seg = wasm_module->data_segments[seg_index];
+    total_size = (int64)elem_size * array_len;
+
+    if (data_seg_offset >= data_seg->data_length
+        || total_size > data_seg->data_length - data_seg_offset) {
+        wasm_set_exception(module_inst, "out of bounds memory access");
         return false;
     }
 
