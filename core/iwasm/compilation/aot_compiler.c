@@ -1839,7 +1839,6 @@ aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
                 }
                 break;
             }
-
 #endif /* end of WASM_ENABLE_GC != 0 */
 
             case WASM_OP_GET_LOCAL:
