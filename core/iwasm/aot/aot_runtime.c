@@ -64,11 +64,6 @@ bh_static_assert(sizeof(CApiFuncImport) == sizeof(uintptr_t) * 3);
 bh_static_assert(sizeof(wasm_val_t) == 16);
 bh_static_assert(offsetof(wasm_val_t, of) == 8);
 
-bh_static_assert(sizeof(CApiFuncImport) == sizeof(uintptr_t) * 3);
-
-bh_static_assert(sizeof(wasm_val_t) == 16);
-bh_static_assert(offsetof(wasm_val_t, of) == 8);
-
 bh_static_assert(offsetof(AOTFrame, prev_frame) == sizeof(uintptr_t) * 0);
 bh_static_assert(offsetof(AOTFrame, func_index) == sizeof(uintptr_t) * 1);
 bh_static_assert(offsetof(AOTFrame, time_started) == sizeof(uintptr_t) * 2);
@@ -1934,6 +1929,17 @@ aot_deinstantiate(AOTModuleInstance *module_inst, bool is_sub_inst)
     }
 #endif
 
+#if WASM_ENABLE_GC != 0
+    if (!is_sub_inst) {
+        AOTModuleInstanceExtra *extra =
+            (AOTModuleInstanceExtra *)module_inst->e;
+        if (extra->common.gc_heap_handle)
+            mem_allocator_destroy(extra->common.gc_heap_handle);
+        if (extra->common.gc_heap_pool)
+            wasm_runtime_free(extra->common.gc_heap_pool);
+    }
+#endif
+
     if (!is_sub_inst) {
 #if WASM_ENABLE_WASI_NN != 0
         wasi_nn_destroy(module_inst);
@@ -3727,6 +3733,48 @@ aot_create_call_stack(struct WASMExecEnv *exec_env)
         if (cur_frame->func_index >= module->import_func_count) {
             uint32 aot_func_idx =
                 (uint32)(cur_frame->func_index - module->import_func_count);
+            max_local_cell_num = module->max_local_cell_nums[aot_func_idx];
+            max_stack_cell_num = module->max_stack_cell_nums[aot_func_idx];
+        }
+        else {
+            AOTFuncType *func_type =
+                module->import_funcs[cur_frame->func_index].func_type;
+            max_local_cell_num =
+                func_type->param_cell_num > 2 ? func_type->param_cell_num : 2;
+            max_stack_cell_num = 0;
+        }
+
+        all_cell_num = max_local_cell_num + max_stack_cell_num;
+#if WASM_ENABLE_GC == 0
+        lp_size = all_cell_num * 4;
+#else
+        lp_size = align_uint(all_cell_num * 5, 4);
+#endif
+        if (lp_size > 0) {
+            if (!(frame.lp = wasm_runtime_malloc(lp_size))) {
+                destroy_c_api_frames(module_inst->frames);
+                return false;
+            }
+            bh_memcpy_s(frame.lp, lp_size, cur_frame->lp, lp_size);
+
+#if WASM_ENABLE_GC != 0
+            uint32 local_ref_flags_cell_num =
+                module->func_local_ref_flags[frame.func_index]
+                    .local_ref_flag_cell_num;
+            uint8 *local_ref_flags =
+                module->func_local_ref_flags[frame.func_index].local_ref_flags;
+            frame.sp = frame.lp + (cur_frame->sp - cur_frame->lp);
+            frame.frame_ref = (uint8 *)frame.lp
+                              + (cur_frame->frame_ref - (uint8 *)cur_frame->lp);
+            /* copy local ref flags from AOT module */
+            bh_memcpy_s(frame.frame_ref, local_ref_flags_cell_num,
+                        local_ref_flags, lp_size);
+#endif
+        }
+
+        if (cur_frame->func_index >= module->import_func_count) {
+            uint32 aot_func_idx =
+                cur_frame->func_index - module->import_func_count;
             max_local_cell_num = module->max_local_cell_nums[aot_func_idx];
             max_stack_cell_num = module->max_stack_cell_nums[aot_func_idx];
         }
