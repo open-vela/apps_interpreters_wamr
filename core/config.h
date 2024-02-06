@@ -562,4 +562,8 @@
 #define WASM_ENABLE_QUICK_AOT_ENTRY 1
 #endif
 
+#ifndef WASM_TABLE_MAX_SIZE
+#define WASM_TABLE_MAX_SIZE 1024
+#endif
+
 #endif /* end of _CONFIG_H_ */

@@ -161,7 +161,6 @@ Currently we only profile the memory consumption of module, module_instance and 
 
 > Also refer to [Tune the performance of running wasm/aot file](./perf_tune.md).
 
-
 #### **Enable the global heap**
 - **WAMR_BUILD_GLOBAL_HEAP_POOL**=1/0, default to disable if not set for all *iwasm* applications, except for the platforms Alios and Zephyr.
 
@@ -245,11 +244,11 @@ Currently we only profile the memory consumption of module, module_instance and 
 - **WAMR_BUILD_STATIC_PGO**=1/0, default to disable if not set
 > Note: See [Use the AOT static PGO method](./perf_tune.md#5-use-the-aot-static-pgo-method) for more details.
 
-### **Enable linux perf support**
+#### **Enable linux perf support**
 - **WAMR_BUILD_LINUX_PERF**=1/0, enable linux perf support to generate the flamegraph to analyze the performance of a wasm application, default to disable if not set
 > Note: See [Use linux-perf](./perf_tune.md#7-use-linux-perf) for more details.
 
-### **Enable module instance context APIs**
+#### **Enable module instance context APIs**
 - **WAMR_BUILD_MODULE_INST_CONTEXT**=1/0, enable module instance context APIs which can set one or more contexts created by the embedder for a wasm module instance, default to enable if not set:
 ```C
     wasm_runtime_create_context_key
@@ -260,7 +259,7 @@ Currently we only profile the memory consumption of module, module_instance and 
 ```
 > Note: See [wasm_export.h](../core/iwasm/include/wasm_export.h) for more details.
 
-### **Enable quick AOT/JTI entries**
+#### **Enable quick AOT/JTI entries**
 - **WAMR_BUILD_QUICK_AOT_ENTRY**=1/0, enable registering quick call entries to speedup the aot/jit func call process, default to enable if not set
 > Note: See [Refine callings to AOT/JIT functions from host native](./perf_tune.md#83-refine-callings-to-aotjit-functions-from-host-native) for more details.
 

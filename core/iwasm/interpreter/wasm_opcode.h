@@ -272,7 +272,7 @@ typedef enum WASMOpcode {
     EXT_OP_IF = 0xd9,             /* if with blocktype */
     EXT_OP_BR_TABLE_CACHE = 0xda, /* br_table from cache */
 
-    EXT_OP_TRY = 0xd7, /* try block with blocktype */
+    EXT_OP_TRY = 0xdb, /* try block with blocktype */
 
 #if WASM_ENABLE_DEBUG_INTERP != 0
     DEBUG_OP_BREAK = 0xdb, /* debug break point */

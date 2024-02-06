@@ -1453,7 +1453,7 @@ quick_aot_entry_init()
 }
 
 void *
-wasm_native_lookup_quick_aot_entry(const WASMType *func_type)
+wasm_native_lookup_quick_aot_entry(const WASMFuncType *func_type)
 {
     char signature[16] = { 0 };
     uint32 param_count = func_type->param_count;

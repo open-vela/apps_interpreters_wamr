@@ -39,6 +39,12 @@ aot_compile_op_call_ref(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
                         const uint8 *frame_ip_call_ref);
 #endif
 
+#if WASM_ENABLE_GC != 0
+bool
+aot_compile_op_call_ref(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
+                        uint32 type_idx, bool tail_call);
+#endif
+
 #ifdef __cplusplus
 } /* end of extern "C" */
 #endif

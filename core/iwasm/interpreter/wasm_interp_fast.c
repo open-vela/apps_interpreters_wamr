@@ -1130,12 +1130,14 @@ FREE_FRAME(WASMExecEnv *exec_env, WASMInterpFrame *frame)
 #if WASM_ENABLE_PERF_PROFILING != 0
     if (frame->function) {
         WASMInterpFrame *prev_frame = frame->prev_frame;
-        uint64 elapsed = os_time_thread_cputime_us() - frame->time_started;
-        frame->function->total_exec_time += elapsed;
+        uint64 time_elapsed = os_time_thread_cputime_us() - frame->time_started;
+
+        frame->function->total_exec_time += time_elapsed;
         frame->function->total_exec_cnt++;
 
+        /* parent function */
         if (prev_frame && prev_frame->function)
-            prev_frame->function->children_exec_time += elapsed;
+            prev_frame->function->children_exec_time += time_elapsed;
     }
 #endif
     wasm_exec_env_free_wasm_frame(exec_env, frame);
@@ -5077,7 +5079,7 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                         if (!bh_bitmap_get_bit(module->e->common.elem_dropped,
                                                elem_idx)) {
                             /* table segment isn't dropped */
-                            tbl_seg_elems =
+                            tbl_seg_init_values =
                                 module->module->table_segments[elem_idx]
                                     .value_count)
                             || offset_len_out_of_bounds(d, n,

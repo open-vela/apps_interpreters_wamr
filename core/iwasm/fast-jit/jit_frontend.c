@@ -1157,10 +1157,11 @@ init_func_translation(JitCompContext *cc)
     func_inst = jit_cc_new_reg_ptr(cc);
 #if WASM_ENABLE_PERF_PROFILING != 0
     time_started = jit_cc_new_reg_I64(cc);
-    /* Call os_time_get_boot_us() to get time_started firstly
+    /* Call os_time_thread_cputime_us() to get time_started firstly
        as there is stack frame switching below, calling native in them
        may cause register spilling work inproperly */
-    if (!jit_emit_callnative(cc, os_time_get_boot_us, time_started, NULL, 0)) {
+    if (!jit_emit_callnative(cc, os_time_thread_cputime_us, time_started, NULL,
+                             0)) {
         return NULL;
     }
 #endif
