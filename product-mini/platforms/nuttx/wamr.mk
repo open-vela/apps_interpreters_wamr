@@ -328,14 +328,52 @@ else
 CFLAGS += -DWASM_ENABLE_LIB_WASI_THREADS=0
 endif
 
-# ifeq ($(CONFIG_INTERPRETERS_WAMR_GC),y)
+ifeq ($(CONFIG_INTERPRETERS_WAMR_GC),y)
 CFLAGS += -DWASM_ENABLE_GC=1
 CFLAGS += -DWASM_ENABLE_REF_TYPES=1
+CFLAGS += -DWASM_ENABLE_GC_BINARYEN=1
+CFLAGS += -DWASM_ENABLE_SPEC=0
+CFLAGS += -DWASM_ENABLE_STRINGREF=1
+
 VPATH += $(IWASM_ROOT)/common/gc
-# else
-# CFLAGS += -DWASM_ENABLE_GC=0
+CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/context.c \
+         ${LIBDYNTYPE_DYNAMIC_DIR}/fallback.c \
+         ${LIBDYNTYPE_DYNAMIC_DIR}/object.c \
+         ${LIBDYNTYPE_EXTREF_DIR}/extref.c \
+         ${DYNTYPE_ROOT}/libdyntype.c \
+         ${DYNTYPE_ROOT}/lib_dyntype_wrapper.c \
+         ${STDLIB_ROOT}/lib_array.c \
+         ${STDLIB_ROOT}/lib_console.c \
+         ${STDLIB_ROOT}/lib_timer.c \
+         ${UTILS_ROOT}/type_utils.c \
+         ${UTILS_ROOT}/wamr_utils.c \
+         ${UTILS_ROOT}/object_utils.c \
+         ${STRUCT_INDIRECT_DIR}/lib_struct_indirect.c \
+         $(IWASM_ROOT)/common/gc/gc_type.c  \
+         $(IWASM_ROOT)/common/gc/gc_object.c  \
+         $(IWASM_ROOT)/common/gc/gc_common.c
+
+override MAINSRC = ${RUNTIMELIB_ROOT}/main_gc.c
+override PROGNAME  = iwasm
+export MAINSRC
+export PROGNAME
+
+ifeq ($(CONFIG_INTERPRETERS_WAMR_USE_SIMPLE_LIBDYNTYPE), y)
+CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value/dyn_value.c
+CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value/class/date.c
+CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value/class/dyn_class.c
+CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value/class/object.c
+CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value/class/string.c
+CSRCS += ${STRINGREF_DIR}/stringref_simple.c
+CFLAGS += -I${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value
+else
+CSRCS += ${STRINGREF_DIR}/stringref_qjs.c
+endif
+
+else
+CFLAGS += -DWASM_ENABLE_GC=0
 # CFLAGS += -DWASM_ENABLE_REF_TYPES = 0
-# endif
+endif
 
 ifeq ($(CONFIG_INTERPRETERS_WAMR_GC_MANUALLY),y)
 CFLAGS += -DWASM_GC_MANUALLY=1
@@ -398,13 +436,7 @@ endif
 # CFLAGS += -DWASM_ENABLE_REF_TYPES=0
 # endif
 
-CFLAGS += -DWASM_ENABLE_GC_BINARYEN=1
-CFLAGS += -DWAMR_BUILD_FAST_INTERP=1 -DWASM_ENABLE_SPEC=0
-#CFLAGS += -DWASM_ENABLE_GC=1
-CFLAGS += -DWASM_ENABLE_STRINGREF=1
-CSRCS += $(IWASM_ROOT)/common/gc/gc_type.c
-CSRCS += $(IWASM_ROOT)/common/gc/gc_object.c
-CSRCS += $(IWASM_ROOT)/common/gc/gc_common.c
+
 
 CFLAGS += -Wno-strict-prototypes -Wno-shadow -Wno-unused-variable
 CFLAGS += -Wno-int-conversion -Wno-implicit-function-declaration
@@ -461,31 +493,6 @@ CSRCS += ${SHARED_ROOT}/platform/nuttx/nuttx_platform.c \
          ${IWASM_ROOT}/common/wasm_exec_env.c \
          ${IWASM_ROOT}/common/wasm_memory.c \
          ${IWASM_ROOT}/common/wasm_c_api.c \
-         ${LIBDYNTYPE_DYNAMIC_DIR}/context.c \
-         ${LIBDYNTYPE_DYNAMIC_DIR}/fallback.c \
-         ${LIBDYNTYPE_DYNAMIC_DIR}/object.c \
-         ${LIBDYNTYPE_EXTREF_DIR}/extref.c \
-         ${DYNTYPE_ROOT}/libdyntype.c \
-         ${DYNTYPE_ROOT}/lib_dyntype_wrapper.c \
-         ${STDLIB_ROOT}/lib_array.c \
-         ${STDLIB_ROOT}/lib_console.c \
-         ${STDLIB_ROOT}/lib_timer.c \
-         ${UTILS_ROOT}/type_utils.c \
-         ${UTILS_ROOT}/wamr_utils.c \
-         ${UTILS_ROOT}/object_utils.c \
-         ${STRUCT_INDIRECT_DIR}/lib_struct_indirect.c
-
-ifeq ($(CONFIG_INTERPRETERS_WAMR_USE_SIMPLE_LIBDYNTYPE), y)
-CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value/dyn_value.c
-CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value/class/date.c
-CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value/class/dyn_class.c
-CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value/class/object.c
-CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value/class/string.c
-CSRCS += ${STRINGREF_DIR}/stringref_simple.c
-CFLAGS += -I${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value
-else
-CSRCS += ${STRINGREF_DIR}/stringref_qjs.c
-endif
 
 ASRCS += $(INVOKE_NATIVE)
 
@@ -514,7 +521,4 @@ VPATH += ${STRUCT_INDIRECT_DIR}
 VPATH += ${LIBDYNTYPE_EXTREF_DIR}
 VPATH += ${STRINGREF_DIR}
 
-override MAINSRC = ${RUNTIMELIB_ROOT}/main_gc.c
-override PROGNAME  = iwasm
-export MAINSRC
-export PROGNAME
+
