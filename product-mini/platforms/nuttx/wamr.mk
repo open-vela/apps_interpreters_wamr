@@ -5,12 +5,13 @@ CORE_ROOT := wamr/core
 IWASM_ROOT := wamr/core/iwasm
 SHARED_ROOT := wamr/core/shared
 
+TS2WASM_RUNTIMELIB_ROOT := $(APPDIR)/frameworks/typescript/ts2wasm/runtime-library
 QUICKJS_ROOT := ../quickjs/quickjs
-DYNTYPE_ROOT := wamr/runtime-library/libdyntype
-STDLIB_ROOT := wamr/runtime-library/stdlib
-STRUCT_DYN_ROOT := wamr/runtime-library/struct-dyn
-UTILS_ROOT := wamr/runtime-library/utils
-RUNTIMELIB_ROOT := wamr/runtime-library
+DYNTYPE_ROOT := ${TS2WASM_RUNTIMELIB_ROOT}/libdyntype
+STDLIB_ROOT := ${TS2WASM_RUNTIMELIB_ROOT}/stdlib
+STRUCT_DYN_ROOT := ${TS2WASM_RUNTIMELIB_ROOT}/struct-dyn
+UTILS_ROOT := ${TS2WASM_RUNTIMELIB_ROOT}/utils
+
 ifeq ($(CONFIG_INTERPRETERS_WAMR_USE_SIMPLE_LIBDYNTYPE), y)
 CFLAGS += -DUSE_SIMPLE_LIBDYNTYPE=1
 LIBDYNTYPE_DYNAMIC_DIR := ${DYNTYPE_ROOT}/dynamic-simple
@@ -18,8 +19,8 @@ else
 LIBDYNTYPE_DYNAMIC_DIR := ${DYNTYPE_ROOT}/dynamic-qjs
 endif
 LIBDYNTYPE_EXTREF_DIR := ${DYNTYPE_ROOT}/extref
-STRUCT_INDIRECT_DIR := ${RUNTIMELIB_ROOT}/struct-indirect
-STRINGREF_DIR := ${RUNTIMELIB_ROOT}/stringref
+STRUCT_INDIRECT_DIR := ${TS2WASM_RUNTIMELIB_ROOT}/struct-indirect
+STRINGREF_DIR := ${TS2WASM_RUNTIMELIB_ROOT}/stringref
 
 
 ifeq ($(CONFIG_ARCH_ARMV6M),y)
@@ -353,7 +354,7 @@ CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/context.c \
          $(IWASM_ROOT)/common/gc/gc_object.c  \
          $(IWASM_ROOT)/common/gc/gc_common.c
 
-override MAINSRC = ${RUNTIMELIB_ROOT}/main_gc.c
+override MAINSRC = ${TS2WASM_RUNTIMELIB_ROOT}/main.c
 override PROGNAME  = iwasm
 export MAINSRC
 export PROGNAME
@@ -515,10 +516,8 @@ VPATH += ${DYNTYPE_ROOT}
 VPATH += ${STDLIB_ROOT}
 VPATH += ${STRUCT_DYN_ROOT}
 VPATH += ${UTILS_ROOT}
-VPATH += ${RUNTIMELIB_ROOT}
+VPATH += ${TS2WASM_RUNTIMELIB_ROOT}
 VPATH += ${LIBDYNTYPE_DYNAMIC_DIR}
 VPATH += ${STRUCT_INDIRECT_DIR}
 VPATH += ${LIBDYNTYPE_EXTREF_DIR}
 VPATH += ${STRINGREF_DIR}
-
-
