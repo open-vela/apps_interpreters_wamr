@@ -703,6 +703,25 @@ wasm_interp_get_frame_ref(WASMInterpFrame *frame)
 #define read_leb_mem_offset(p, p_end, res) read_leb_uint32(p, p_end, res)
 #endif
 
+#if WASM_ENABLE_MEMORY64 != 0
+#define read_leb_mem_offset(p, p_end, res)                                \
+    do {                                                                  \
+        uint8 _val = *p;                                                  \
+        if (!(_val & 0x80)) {                                             \
+            res = (mem_offset_t)_val;                                     \
+            p++;                                                          \
+        }                                                                 \
+        else {                                                            \
+            uint32 _off = 0;                                              \
+            res = (mem_offset_t)read_leb(p, &_off, is_memory64 ? 64 : 32, \
+                                         false);                          \
+            p += _off;                                                    \
+        }                                                                 \
+    } while (0)
+#else
+#define read_leb_mem_offset(p, p_end, res) read_leb_uint32(p, p_end, res)
+#endif
+
 #if WASM_ENABLE_LABELS_AS_VALUES == 0
 #define RECOVER_FRAME_IP_END() frame_ip_end = wasm_get_func_code_end(cur_func)
 #else

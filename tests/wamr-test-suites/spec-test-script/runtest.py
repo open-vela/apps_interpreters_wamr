@@ -1119,12 +1119,12 @@ def compile_wasm_to_aot(wasm_tempfile, aot_tempfile, runner, opts, r, output = '
         cmd.append("--enable-gc")
         cmd.append("--enable-tail-call")
 
-<<<<<<< HEAD
     if opts.memory64:
         cmd.append("--enable-memory64")
 
-=======
->>>>>>> Implement GC (Garbage Collection) feature for interpreter, AOT and LLVM-JIT (#3125)
+    if opts.memory64:
+        cmd.append("--enable-memory64")
+
     if output == 'object':
         cmd.append("--format=object")
     elif output == 'ir':

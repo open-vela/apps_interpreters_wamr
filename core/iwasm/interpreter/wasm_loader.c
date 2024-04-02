@@ -7672,6 +7672,7 @@ wasm_loader_find_block_addr(WASMExecEnv *exec_env, BlockAddr *block_addr_cache,
 #if (WASM_ENABLE_WAMR_COMPILER != 0) || (WASM_ENABLE_JIT != 0)
             case WASM_OP_SIMD_PREFIX:
             {
+                /* TODO: memory64 offset type changes */
                 uint32 opcode1;
 
                 read_leb_uint32(p, p_end, opcode1);
