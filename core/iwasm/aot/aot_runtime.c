@@ -3774,7 +3774,7 @@ aot_create_call_stack(struct WASMExecEnv *exec_env)
 
         if (cur_frame->func_index >= module->import_func_count) {
             uint32 aot_func_idx =
-                cur_frame->func_index - module->import_func_count;
+                (uint32)(cur_frame->func_index - module->import_func_count);
             max_local_cell_num = module->max_local_cell_nums[aot_func_idx];
             max_stack_cell_num = module->max_stack_cell_nums[aot_func_idx];
         }
