@@ -15041,13 +15041,6 @@ re_scan:
                         break;
                     }
 
-                    case SIMD_i32x4_narrow_i64x2_s:
-                    case SIMD_i32x4_narrow_i64x2_u:
-                    {
-                        POP2_AND_PUSH(VALUE_TYPE_V128, VALUE_TYPE_V128);
-                        break;
-                    }
-
                     case SIMD_i32x4_extend_low_i16x8_s:
                     case SIMD_i32x4_extend_high_i16x8_s:
                     case SIMD_i32x4_extend_low_i16x8_u:
@@ -15074,7 +15067,6 @@ re_scan:
                     case SIMD_i32x4_max_s:
                     case SIMD_i32x4_max_u:
                     case SIMD_i32x4_dot_i16x8_s:
-                    case SIMD_i32x4_avgr_u:
                     case SIMD_i32x4_extmul_low_i16x8_s:
                     case SIMD_i32x4_extmul_high_i16x8_s:
                     case SIMD_i32x4_extmul_low_i16x8_u:
@@ -15138,7 +15130,6 @@ re_scan:
                     /* f32x4 operation */
                     case SIMD_f32x4_abs:
                     case SIMD_f32x4_neg:
-                    case SIMD_f32x4_round:
                     case SIMD_f32x4_sqrt:
                     {
                         POP_AND_PUSH(VALUE_TYPE_V128, VALUE_TYPE_V128);
@@ -15161,7 +15152,6 @@ re_scan:
                     /* f64x2 operation */
                     case SIMD_f64x2_abs:
                     case SIMD_f64x2_neg:
-                    case SIMD_f64x2_round:
                     case SIMD_f64x2_sqrt:
                     {
                         POP_AND_PUSH(VALUE_TYPE_V128, VALUE_TYPE_V128);
