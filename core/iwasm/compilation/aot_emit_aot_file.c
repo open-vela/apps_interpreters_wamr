@@ -495,7 +495,7 @@ get_func_type_size(AOTCompContext *comp_ctx, AOTFuncType *func_type)
 
         /* type flag */
         size += sizeof(func_type->base_type.type_flag);
-        /* is_sub_final */
+        /* equivalence type flag + is_sub_final */
         size += sizeof(uint16);
         /* parent_type_idx */
         size += sizeof(func_type->base_type.parent_type_idx);
@@ -531,12 +531,12 @@ static uint32
 get_struct_type_size(AOTCompContext *comp_ctx, AOTStructType *struct_type)
 {
     uint32 size = 0;
-    /* type flag + is_sub_final + parent_type_idx + rec_count + rec_idx + field
-     * count + fields */
+    /* type flag + equivalence type flag + is_sub_final + parent_type_idx
+       + rec_count + rec_idx + field count + fields */
 
     /* type flag */
     size += sizeof(struct_type->base_type.type_flag);
-    /* is_sub_final */
+    /* equivalence type flag + is_sub_final */
     size += sizeof(uint16);
     /* parent_type_idx */
     size += sizeof(struct_type->base_type.parent_type_idx);
@@ -560,12 +560,12 @@ static uint32
 get_array_type_size(AOTCompContext *comp_ctx, AOTArrayType *array_type)
 {
     uint32 size = 0;
-    /* type flag + is_sub_final + parent_type_idx + rec_count + rec_idx +
-       elem_flags + elem_type + elem_ref_type */
+    /* type flag + equivalence type flag + is_sub_final + parent_type_idx
+       + rec_count + rec_idx + elem_flags + elem_type + elem_ref_type */
 
     /* type flag */
     size += sizeof(array_type->base_type.type_flag);
-    /* is_sub_final */
+    /* equivalence type flag + is_sub_final */
     size += sizeof(uint16);
     /* parent_type_idx (u32) */
     size += sizeof(array_type->base_type.parent_type_idx);
@@ -609,7 +609,22 @@ get_type_info_size(AOTCompContext *comp_ctx, AOTCompData *comp_data)
 #if WASM_ENABLE_GC != 0
     if (comp_ctx->enable_gc) {
         for (i = 0; i < comp_data->type_count; i++) {
+            uint32 j;
+
             size = align_uint(size, 4);
+
+            /* Emit simple info if there is an equivalence type */
+            for (j = 0; j < i; j++) {
+                if (comp_data->types[j] == comp_data->types[i]) {
+                    /* type_flag (2 bytes) + equivalence type flag (1 byte)
+                       + padding (1 byte) + equivalence type index */
+                    size += 8;
+                    break;
+                }
+            }
+            if (j < i)
+                continue;
+
             if (comp_data->types[i]->type_flag == WASM_TYPE_FUNC)
                 size += get_func_type_size(comp_ctx,
                                            (AOTFuncType *)comp_data->types[i]);
@@ -2268,13 +2283,32 @@ aot_emit_type_info(uint8 *buf, uint8 *buf_end, uint32 *p_offset,
 
 #if WASM_ENABLE_GC != 0
     if (comp_ctx->enable_gc) {
-        int32 idx;
         AOTType **types = comp_data->types;
+        int32 idx;
+        uint32 j;
 
         for (i = 0; i < comp_data->type_count; i++) {
             offset = align_uint(offset, 4);
+
+            /* Emit simple info if there is an equivalence type */
+            for (j = 0; j < i; j++) {
+                if (types[j] == types[i]) {
+                    EMIT_U16(types[i]->type_flag);
+                    /* equivalence type flag is true */
+                    EMIT_U8(1);
+                    EMIT_U8(0);
+                    /* equivalence type index */
+                    EMIT_U32(j);
+                    break;
+                }
+            }
+            if (j < i)
+                continue;
+
             EMIT_U16(types[i]->type_flag);
-            EMIT_U16(types[i]->is_sub_final);
+            /* equivalence type flag is false */
+            EMIT_U8(0);
+            EMIT_U8(types[i]->is_sub_final);
             EMIT_U32(types[i]->parent_type_idx);
 
             EMIT_U16(types[i]->rec_count);

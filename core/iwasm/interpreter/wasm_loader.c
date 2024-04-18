@@ -394,10 +394,10 @@ memory_realloc(void *mem_old, uint32 size_old, uint32 size_new, char *error_buf,
 
 #if WASM_ENABLE_GC != 0
 static bool
-check_type_index(const WASMModule *module, uint32 type_index, char *error_buf,
-                 uint32 error_buf_size)
+check_type_index(const WASMModule *module, uint32 type_count, uint32 type_index,
+                 char *error_buf, uint32 error_buf_size)
 {
-    if (type_index >= module->type_count) {
+    if (type_index >= type_count) {
         set_error_buf_v(error_buf, error_buf_size, "unknown type %d",
                         type_index);
         return false;
@@ -409,7 +409,8 @@ static bool
 check_array_type(const WASMModule *module, uint32 type_index, char *error_buf,
                  uint32 error_buf_size)
 {
-    if (!check_type_index(module, type_index, error_buf, error_buf_size)) {
+    if (!check_type_index(module, module->type_count, type_index, error_buf,
+                          error_buf_size)) {
         return false;
     }
     if (module->types[type_index]->type_flag != WASM_TYPE_ARRAY) {
@@ -769,8 +770,8 @@ load_init_expr(WASMModule *module, const uint8 **p_buf, const uint8 *buf_end,
                 if (!is_byte_a_type(type1)) {
                     p--;
                     read_leb_uint32(p, p_end, type_idx);
-                    if (!check_type_index(module, type_idx, error_buf,
-                                          error_buf_size))
+                    if (!check_type_index(module, module->type_count, type_idx,
+                                          error_buf, error_buf_size))
                         goto fail;
 
                     wasm_set_refheaptype_typeidx(&cur_ref_type.ref_ht_typeidx,
@@ -894,7 +895,8 @@ load_init_expr(WASMModule *module, const uint8 **p_buf, const uint8 *buf_end,
                         uint32 field_count;
                         read_leb_uint32(p, p_end, type_idx);
 
-                        if (!check_type_index(module, type_idx, error_buf,
+                        if (!check_type_index(module, module->type_count,
+                                              type_idx, error_buf,
                                               error_buf_size)) {
                             goto fail;
                         }
@@ -958,7 +960,8 @@ load_init_expr(WASMModule *module, const uint8 **p_buf, const uint8 *buf_end,
                         read_leb_uint32(p, p_end, cur_value.type_index);
                         type_idx = cur_value.type_index;
 
-                        if (!check_type_index(module, type_idx, error_buf,
+                        if (!check_type_index(module, module->type_count,
+                                              type_idx, error_buf,
                                               error_buf_size)) {
                             goto fail;
                         }
@@ -993,7 +996,8 @@ load_init_expr(WASMModule *module, const uint8 **p_buf, const uint8 *buf_end,
                         read_leb_uint32(p, p_end, cur_value.type_index);
                         type_idx = cur_value.type_index;
 
-                        if (!check_type_index(module, type_idx, error_buf,
+                        if (!check_type_index(module, module->type_count,
+                                              type_idx, error_buf,
                                               error_buf_size)) {
                             goto fail;
                         }
@@ -1267,6 +1271,13 @@ destroy_array_type(WASMArrayType *type)
 static void
 destroy_wasm_type(WASMType *type)
 {
+    if (type->ref_count > 1) {
+        /* The type is referenced by other types
+           of current wasm module */
+        type->ref_count--;
+        return;
+    }
+
     if (type->type_flag == WASM_TYPE_FUNC)
         destroy_func_type((WASMFuncType *)type);
     else if (type->type_flag == WASM_TYPE_STRUCT)
@@ -1281,8 +1292,9 @@ destroy_wasm_type(WASMType *type)
 /* Resolve (ref null ht) or (ref ht) */
 static bool
 resolve_reftype_htref(const uint8 **p_buf, const uint8 *buf_end,
-                      WASMModule *module, bool nullable, WASMRefType *ref_type,
-                      char *error_buf, uint32 error_buf_size)
+                      WASMModule *module, uint32 type_count, bool nullable,
+                      WASMRefType *ref_type, char *error_buf,
+                      uint32 error_buf_size)
 {
     const uint8 *p = *p_buf, *p_end = buf_end;
 
@@ -1293,8 +1305,9 @@ resolve_reftype_htref(const uint8 **p_buf, const uint8 *buf_end,
 
     if (wasm_is_refheaptype_typeidx(&ref_type->ref_ht_common)) {
         /* heap type is (type i), i : typeidx, >= 0 */
-        if (!check_type_index(module, ref_type->ref_ht_typeidx.type_idx,
-                              error_buf, error_buf_size)) {
+        if (!check_type_index(module, type_count,
+                              ref_type->ref_ht_typeidx.type_idx, error_buf,
+                              error_buf_size)) {
             return false;
         }
     }
@@ -1312,9 +1325,10 @@ fail:
 
 static bool
 resolve_value_type(const uint8 **p_buf, const uint8 *buf_end,
-                   WASMModule *module, bool *p_need_ref_type_map,
-                   WASMRefType *ref_type, bool allow_packed_type,
-                   char *error_buf, uint32 error_buf_size)
+                   WASMModule *module, uint32 type_count,
+                   bool *p_need_ref_type_map, WASMRefType *ref_type,
+                   bool allow_packed_type, char *error_buf,
+                   uint32 error_buf_size)
 {
     const uint8 *p = *p_buf, *p_end = buf_end;
     uint8 type;
@@ -1326,8 +1340,8 @@ resolve_value_type(const uint8 **p_buf, const uint8 *buf_end,
 
     if (wasm_is_reftype_htref_nullable(type)) {
         /* (ref null ht) */
-        if (!resolve_reftype_htref(&p, p_end, module, true, ref_type, error_buf,
-                                   error_buf_size))
+        if (!resolve_reftype_htref(&p, p_end, module, type_count, true,
+                                   ref_type, error_buf, error_buf_size))
             return false;
         if (!wasm_is_refheaptype_common(&ref_type->ref_ht_common))
             *p_need_ref_type_map = true;
@@ -1343,8 +1357,8 @@ resolve_value_type(const uint8 **p_buf, const uint8 *buf_end,
     }
     else if (wasm_is_reftype_htref_non_nullable(type)) {
         /* (ref ht) */
-        if (!resolve_reftype_htref(&p, p_end, module, false, ref_type,
-                                   error_buf, error_buf_size))
+        if (!resolve_reftype_htref(&p, p_end, module, type_count, false,
+                                   ref_type, error_buf, error_buf_size))
             return false;
         *p_need_ref_type_map = true;
 #if WASM_ENABLE_STRINGREF != 0
@@ -1388,7 +1402,8 @@ reftype_set_insert(HashMap *ref_type_set, const WASMRefType *ref_type,
 
 static bool
 resolve_func_type(const uint8 **p_buf, const uint8 *buf_end, WASMModule *module,
-                  uint32 type_idx, char *error_buf, uint32 error_buf_size)
+                  uint32 type_count, uint32 type_idx, char *error_buf,
+                  uint32 error_buf_size)
 {
     const uint8 *p = *p_buf, *p_end = buf_end, *p_org;
     uint32 param_count, result_count, i, j = 0;
@@ -1404,8 +1419,9 @@ resolve_func_type(const uint8 **p_buf, const uint8 *buf_end, WASMModule *module,
     read_leb_uint32(p, p_end, param_count);
     p_org = p;
     for (i = 0; i < param_count; i++) {
-        if (!resolve_value_type(&p, p_end, module, &need_ref_type_map,
-                                &ref_type, false, error_buf, error_buf_size)) {
+        if (!resolve_value_type(&p, p_end, module, type_count,
+                                &need_ref_type_map, &ref_type, false, error_buf,
+                                error_buf_size)) {
             return false;
         }
         if (need_ref_type_map)
@@ -1414,8 +1430,9 @@ resolve_func_type(const uint8 **p_buf, const uint8 *buf_end, WASMModule *module,
 
     read_leb_uint32(p, p_end, result_count);
     for (i = 0; i < result_count; i++) {
-        if (!resolve_value_type(&p, p_end, module, &need_ref_type_map,
-                                &ref_type, false, error_buf, error_buf_size)) {
+        if (!resolve_value_type(&p, p_end, module, type_count,
+                                &need_ref_type_map, &ref_type, false, error_buf,
+                                error_buf_size)) {
             return false;
         }
         if (need_ref_type_map) {
@@ -1455,8 +1472,9 @@ resolve_func_type(const uint8 **p_buf, const uint8 *buf_end, WASMModule *module,
     }
 
     for (i = 0; i < param_count; i++) {
-        if (!resolve_value_type(&p, p_end, module, &need_ref_type_map,
-                                &ref_type, false, error_buf, error_buf_size)) {
+        if (!resolve_value_type(&p, p_end, module, type_count,
+                                &need_ref_type_map, &ref_type, false, error_buf,
+                                error_buf_size)) {
             goto fail;
         }
         type->types[i] = ref_type.ref_type;
@@ -1472,8 +1490,9 @@ resolve_func_type(const uint8 **p_buf, const uint8 *buf_end, WASMModule *module,
 
     read_leb_uint32(p, p_end, result_count);
     for (i = 0; i < result_count; i++) {
-        if (!resolve_value_type(&p, p_end, module, &need_ref_type_map,
-                                &ref_type, false, error_buf, error_buf_size)) {
+        if (!resolve_value_type(&p, p_end, module, type_count,
+                                &need_ref_type_map, &ref_type, false, error_buf,
+                                error_buf_size)) {
             goto fail;
         }
         type->types[param_count + i] = ref_type.ref_type;
@@ -1528,8 +1547,8 @@ fail:
 
 static bool
 resolve_struct_type(const uint8 **p_buf, const uint8 *buf_end,
-                    WASMModule *module, uint32 type_idx, char *error_buf,
-                    uint32 error_buf_size)
+                    WASMModule *module, uint32 type_count, uint32 type_idx,
+                    char *error_buf, uint32 error_buf_size)
 {
     const uint8 *p = *p_buf, *p_end = buf_end, *p_org;
     uint32 field_count, ref_type_map_count = 0, ref_field_count = 0;
@@ -1545,8 +1564,9 @@ resolve_struct_type(const uint8 **p_buf, const uint8 *buf_end,
     read_leb_uint32(p, p_end, field_count);
     p_org = p;
     for (i = 0; i < field_count; i++) {
-        if (!resolve_value_type(&p, p_end, module, &need_ref_type_map,
-                                &ref_type, true, error_buf, error_buf_size)) {
+        if (!resolve_value_type(&p, p_end, module, type_count,
+                                &need_ref_type_map, &ref_type, true, error_buf,
+                                error_buf_size)) {
             return false;
         }
         if (need_ref_type_map)
@@ -1593,8 +1613,9 @@ resolve_struct_type(const uint8 **p_buf, const uint8 *buf_end,
 
     offset = (uint32)offsetof(WASMStructObject, field_data);
     for (i = 0; i < field_count; i++) {
-        if (!resolve_value_type(&p, p_end, module, &need_ref_type_map,
-                                &ref_type, true, error_buf, error_buf_size)) {
+        if (!resolve_value_type(&p, p_end, module, type_count,
+                                &need_ref_type_map, &ref_type, true, error_buf,
+                                error_buf_size)) {
             goto fail;
         }
         type->fields[i].field_type = ref_type.ref_type;
@@ -1647,8 +1668,8 @@ fail:
 
 static bool
 resolve_array_type(const uint8 **p_buf, const uint8 *buf_end,
-                   WASMModule *module, uint32 type_idx, char *error_buf,
-                   uint32 error_buf_size)
+                   WASMModule *module, uint32 type_count, uint32 type_idx,
+                   char *error_buf, uint32 error_buf_size)
 {
     const uint8 *p = *p_buf, *p_end = buf_end;
     uint8 mutable;
@@ -1656,8 +1677,8 @@ resolve_array_type(const uint8 **p_buf, const uint8 *buf_end,
     WASMRefType ref_type;
     WASMArrayType *type = NULL;
 
-    if (!resolve_value_type(&p, p_end, module, &need_ref_type_map, &ref_type,
-                            true, error_buf, error_buf_size)) {
+    if (!resolve_value_type(&p, p_end, module, type_count, &need_ref_type_map,
+                            &ref_type, true, error_buf, error_buf_size)) {
         return false;
     }
 
@@ -1706,7 +1727,8 @@ init_ref_type(WASMModule *module, WASMRefType *ref_type, bool nullable,
               int32 heap_type, char *error_buf, uint32 error_buf_size)
 {
     if (heap_type >= 0) {
-        if (!check_type_index(module, heap_type, error_buf, error_buf_size)) {
+        if (!check_type_index(module, module->type_count, heap_type, error_buf,
+                              error_buf_size)) {
             return false;
         }
         wasm_set_refheaptype_typeidx(&ref_type->ref_ht_typeidx, nullable,
@@ -1986,6 +2008,7 @@ load_type_section(const uint8 *buf, const uint8 *buf_end, WASMModule *module,
 
                 if (flag == DEFINED_TYPE_FUNC) {
                     if (!resolve_func_type(&p, buf_end, module,
+                                           processed_type_count + rec_count,
                                            processed_type_count + j, error_buf,
                                            error_buf_size)) {
                         return false;
@@ -1993,6 +2016,7 @@ load_type_section(const uint8 *buf, const uint8 *buf_end, WASMModule *module,
                 }
                 else if (flag == DEFINED_TYPE_STRUCT) {
                     if (!resolve_struct_type(&p, buf_end, module,
+                                             processed_type_count + rec_count,
                                              processed_type_count + j,
                                              error_buf, error_buf_size)) {
                         return false;
@@ -2000,6 +2024,7 @@ load_type_section(const uint8 *buf, const uint8 *buf_end, WASMModule *module,
                 }
                 else if (flag == DEFINED_TYPE_ARRAY) {
                     if (!resolve_array_type(&p, buf_end, module,
+                                            processed_type_count + rec_count,
                                             processed_type_count + j, error_buf,
                                             error_buf_size)) {
                         return false;
@@ -2013,13 +2038,13 @@ load_type_section(const uint8 *buf, const uint8 *buf_end, WASMModule *module,
 
                 cur_type = module->types[processed_type_count + j];
 
+                cur_type->ref_count = 1;
                 cur_type->parent_type_idx = parent_type_idx;
                 cur_type->is_sub_final = is_sub_final;
 
-                if (rec_count > 1) {
-                    cur_type->rec_count = rec_count;
-                    cur_type->rec_idx = j;
-                }
+                cur_type->rec_count = rec_count;
+                cur_type->rec_idx = j;
+                cur_type->rec_begin_type_idx = processed_type_count;
             }
 
             /* resolve subtyping relationship in current rec group */
@@ -2031,6 +2056,11 @@ load_type_section(const uint8 *buf, const uint8 *buf_end, WASMModule *module,
                         module->types[cur_type->parent_type_idx];
                     cur_type->parent_type = parent_type;
                     cur_type->root_type = parent_type->root_type;
+                    if (parent_type->inherit_depth == UINT16_MAX) {
+                        set_error_buf(error_buf, error_buf_size,
+                                      "parent type's inherit depth too large");
+                        return false;
+                    }
                     cur_type->inherit_depth = parent_type->inherit_depth + 1;
                 }
                 else {
@@ -2054,6 +2084,49 @@ load_type_section(const uint8 *buf, const uint8 *buf_end, WASMModule *module,
                         return false;
                     }
                 }
+            }
+
+            /* If there is already an equivalence type or a group of equivalence
+               recursive types created, use it or them instead */
+            for (j = 0; j < processed_type_count;) {
+                WASMType *src_type = module->types[j];
+                WASMType *cur_type = module->types[processed_type_count];
+                uint32 k, src_rec_count;
+
+                src_rec_count = src_type->rec_count;
+                if (src_rec_count != rec_count) {
+                    /* no type equivalence */
+                    j += src_rec_count;
+                    continue;
+                }
+
+                for (k = 0; k < rec_count; k++) {
+                    src_type = module->types[j + k];
+                    cur_type = module->types[processed_type_count + k];
+                    if (!wasm_type_equal(src_type, cur_type, module->types,
+                                         module->type_count)) {
+                        break;
+                    }
+                }
+                if (k < rec_count) {
+                    /* no type equivalence */
+                    j += src_rec_count;
+                    continue;
+                }
+
+                /* type equivalence */
+                for (k = 0; k < rec_count; k++) {
+                    if (module->types[j + k]->ref_count == UINT16_MAX) {
+                        set_error_buf(error_buf, error_buf_size,
+                                      "wasm type's ref count too large");
+                        return false;
+                    }
+                    destroy_wasm_type(module->types[processed_type_count + k]);
+                    module->types[processed_type_count + k] =
+                        module->types[j + k];
+                    module->types[j + k]->ref_count++;
+                }
+                break;
             }
 
             if (rec_count > 1) {
@@ -2487,8 +2560,9 @@ load_table_import(const uint8 **p_buf, const uint8 *buf_end,
         return false;
     }
 #else /* else of WASM_ENABLE_GC == 0 */
-    if (!resolve_value_type(&p, p_end, parent_module, &need_ref_type_map,
-                            &ref_type, false, error_buf, error_buf_size)) {
+    if (!resolve_value_type(&p, p_end, parent_module, parent_module->type_count,
+                            &need_ref_type_map, &ref_type, false, error_buf,
+                            error_buf_size)) {
         return false;
     }
     if (wasm_is_reftype_htref_non_nullable(ref_type.ref_type)) {
@@ -2923,8 +2997,9 @@ load_global_import(const uint8 **p_buf, const uint8 *buf_end,
     declare_type = read_uint8(p);
     declare_mutable = read_uint8(p);
 #else
-    if (!resolve_value_type(&p, p_end, parent_module, &need_ref_type_map,
-                            &ref_type, false, error_buf, error_buf_size)) {
+    if (!resolve_value_type(&p, p_end, parent_module, parent_module->type_count,
+                            &need_ref_type_map, &ref_type, false, error_buf,
+                            error_buf_size)) {
         return false;
     }
     declare_type = ref_type.ref_type;
@@ -3026,8 +3101,9 @@ load_table(const uint8 **p_buf, const uint8 *buf_end, WASMModule *module,
         return false;
     }
 #else /* else of WASM_ENABLE_GC == 0 */
-    if (!resolve_value_type(&p, p_end, module, &need_ref_type_map, &ref_type,
-                            false, error_buf, error_buf_size)) {
+    if (!resolve_value_type(&p, p_end, module, module->type_count,
+                            &need_ref_type_map, &ref_type, false, error_buf,
+                            error_buf_size)) {
         return false;
     }
     table->elem_type = ref_type.ref_type;
@@ -3513,7 +3589,8 @@ load_function_section(const uint8 *buf, const uint8 *buf_end,
             type_index_org = type_index;
 #endif
 
-#if (WASM_ENABLE_WAMR_COMPILER != 0) || (WASM_ENABLE_JIT != 0)
+#if (WASM_ENABLE_WAMR_COMPILER != 0 || WASM_ENABLE_JIT != 0) \
+    && WASM_ENABLE_GC == 0
             type_index = wasm_get_smallest_type_idx(
                 module->types, module->type_count, type_index);
 #endif
@@ -3549,8 +3626,9 @@ load_function_section(const uint8 *buf, const uint8 *buf_end,
                 local_count += sub_local_count;
 #else
                 if (!resolve_value_type(&p_code, buf_code_end, module,
-                                        &need_ref_type_map, &ref_type, false,
-                                        error_buf, error_buf_size)) {
+                                        module->type_count, &need_ref_type_map,
+                                        &ref_type, false, error_buf,
+                                        error_buf_size)) {
                     return false;
                 }
                 local_count += sub_local_count;
@@ -3636,8 +3714,9 @@ load_function_section(const uint8 *buf, const uint8 *buf_end,
                 }
 #else
                 if (!resolve_value_type(&p_code, buf_code_end, module,
-                                        &need_ref_type_map, &ref_type, false,
-                                        error_buf, error_buf_size)) {
+                                        module->type_count, &need_ref_type_map,
+                                        &ref_type, false, error_buf,
+                                        error_buf_size)) {
                     return false;
                 }
                 if (need_ref_type_map) {
@@ -3891,9 +3970,9 @@ load_global_section(const uint8 *buf, const uint8 *buf_end, WASMModule *module,
             global->type = read_uint8(p);
             mutable = read_uint8(p);
 #else
-            if (!resolve_value_type(&p, p_end, module, &need_ref_type_map,
-                                    &ref_type, false, error_buf,
-                                    error_buf_size)) {
+            if (!resolve_value_type(&p, p_end, module, module->type_count,
+                                    &need_ref_type_map, &ref_type, false,
+                                    error_buf, error_buf_size)) {
                 return false;
             }
             global->type = ref_type.ref_type;
@@ -4191,8 +4270,8 @@ load_elem_type(WASMModule *module, const uint8 **p_buf, const uint8 *buf_end,
 #else
     p--;
     if (!resolve_value_type((const uint8 **)&p, p_end, module,
-                            &need_ref_type_map, &elem_ref_type, false,
-                            error_buf, error_buf_size)) {
+                            module->type_count, &need_ref_type_map,
+                            &elem_ref_type, false, error_buf, error_buf_size)) {
         return false;
     }
     if (!wasm_is_type_reftype(elem_ref_type.ref_type)) {
@@ -10758,7 +10837,8 @@ re_scan:
                         p_org = p;
                         p--;
                         if (!resolve_value_type((const uint8 **)&p, p_end,
-                                                module, &need_ref_type_map,
+                                                module, module->type_count,
+                                                &need_ref_type_map,
                                                 &wasm_ref_type, false,
                                                 error_buf, error_buf_size)) {
                             goto fail;
@@ -11213,8 +11293,8 @@ re_scan:
                     bh_memcpy_s(loader_ctx->frame_offset, size,
                                 block->param_frame_offsets, size);
                     loader_ctx->frame_offset += (size / sizeof(int16));
-                    loader_ctx->dynamic_offset = block->start_dynamic_offset;
                 }
+                loader_ctx->dynamic_offset = block->start_dynamic_offset;
 #endif
 
                 break;
@@ -11508,6 +11588,15 @@ re_scan:
                 if (opcode == WASM_OP_CALL_REF
                     || opcode == WASM_OP_RETURN_CALL_REF) {
                     read_leb_uint32(p, p_end, type_idx1);
+                    if (!check_type_index(module, module->type_count, type_idx1,
+                                          error_buf, error_buf_size)) {
+                        goto fail;
+                    }
+                    if (module->types[type_idx1]->type_flag != WASM_TYPE_FUNC) {
+                        set_error_buf(error_buf, error_buf_size,
+                                      "unkown function type");
+                        goto fail;
+                    }
                     if (!wasm_loader_pop_nullable_typeidx(loader_ctx, &type,
                                                           &type_idx, error_buf,
                                                           error_buf_size)) {
@@ -11516,8 +11605,8 @@ re_scan:
                     if (type == VALUE_TYPE_ANY) {
                         type_idx = type_idx1;
                     }
-                    if (!check_type_index(module, type_idx, error_buf,
-                                          error_buf_size)) {
+                    if (!check_type_index(module, module->type_count, type_idx,
+                                          error_buf, error_buf_size)) {
                         goto fail;
                     }
                     if (module->types[type_idx]->type_flag != WASM_TYPE_FUNC) {
@@ -11525,7 +11614,9 @@ re_scan:
                                       "unkown function type");
                         goto fail;
                     }
-                    if (type_idx != type_idx1) {
+                    if (!wasm_func_type_is_super_of(
+                            (WASMFuncType *)module->types[type_idx1],
+                            (WASMFuncType *)module->types[type_idx])) {
                         set_error_buf(error_buf, error_buf_size,
                                       "function type mismatch");
                         goto fail;
@@ -11966,8 +12057,9 @@ re_scan:
 #else
                 p_org = p + 1;
                 if (!resolve_value_type((const uint8 **)&p, p_end, module,
-                                        &need_ref_type_map, &wasm_ref_type,
-                                        false, error_buf, error_buf_size)) {
+                                        module->type_count, &need_ref_type_map,
+                                        &wasm_ref_type, false, error_buf,
+                                        error_buf_size)) {
                     goto fail;
                 }
                 type = wasm_ref_type.ref_type;
@@ -12147,8 +12239,8 @@ re_scan:
 #else
                 read_leb_int32(p, p_end, heap_type);
                 if (heap_type >= 0) {
-                    if (!check_type_index(module, heap_type, error_buf,
-                                          error_buf_size)) {
+                    if (!check_type_index(module, module->type_count, heap_type,
+                                          error_buf, error_buf_size)) {
                         goto fail;
                     }
                     wasm_set_refheaptype_typeidx(&wasm_ref_type.ref_ht_typeidx,
@@ -13200,7 +13292,8 @@ re_scan:
 #if WASM_ENABLE_FAST_INTERP != 0
                         emit_uint32(loader_ctx, type_idx);
 #endif
-                        if (!check_type_index(module, type_idx, error_buf,
+                        if (!check_type_index(module, module->type_count,
+                                              type_idx, error_buf,
                                               error_buf_size)) {
                             goto fail;
                         }
@@ -13286,7 +13379,8 @@ re_scan:
 #if WASM_ENABLE_FAST_INTERP != 0
                         emit_uint32(loader_ctx, type_idx);
 #endif
-                        if (!check_type_index(module, type_idx, error_buf,
+                        if (!check_type_index(module, module->type_count,
+                                              type_idx, error_buf,
                                               error_buf_size)) {
                             goto fail;
                         }
@@ -13699,7 +13793,8 @@ re_scan:
                         emit_uint32(loader_ctx, (uint32)heap_type);
 #endif
                         if (heap_type >= 0) {
-                            if (!check_type_index(module, heap_type, error_buf,
+                            if (!check_type_index(module, module->type_count,
+                                                  heap_type, error_buf,
                                                   error_buf_size)) {
                                 goto fail;
                             }
