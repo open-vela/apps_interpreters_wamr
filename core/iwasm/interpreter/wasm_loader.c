@@ -4594,7 +4594,7 @@ load_data_segment_section(const uint8 *buf, const uint8 *buf_end,
     bool is_passive = false;
     uint32 mem_flag;
 #endif
-    uint8 mem_offset_type;
+    uint8 mem_offset_type = VALUE_TYPE_I32;
 
     read_leb_uint32(p, p_end, data_seg_count);
 
@@ -11252,8 +11252,10 @@ re_scan:
                 BlockType block_type;
 
                 if (loader_ctx->csp_num < 2
-                    || (loader_ctx->frame_csp - 1)->label_type
-                           != LABEL_TYPE_IF) {
+                    /* the matched if isn't found */
+                    || (loader_ctx->frame_csp - 1)->label_type != LABEL_TYPE_IF
+                    /* duplicated else is found */
+                    || (loader_ctx->frame_csp - 1)->else_addr) {
                     set_error_buf(
                         error_buf, error_buf_size,
                         "opcode else found without matched opcode if");
@@ -12344,8 +12346,11 @@ re_scan:
                     goto fail;
                 }
 
-                /* Refer to a forward-declared function */
-                if (func_idx >= cur_func_idx + module->import_function_count) {
+                /* Refer to a forward-declared function:
+                   the function must be an import, exported, or present in
+                   a table elem segment or global initializer to be used as
+                   the operand to ref.func */
+                if (func_idx >= module->import_function_count) {
                     WASMTableSeg *table_seg = module->table_segments;
                     bool func_declared = false;
                     uint32 j;
@@ -12365,6 +12370,7 @@ re_scan:
                             }
                         }
                     }
+
                     if (!func_declared) {
                         /* Check whether the function is exported */
                         for (i = 0; i < module->export_count; i++) {
