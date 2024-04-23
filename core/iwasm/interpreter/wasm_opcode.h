@@ -275,7 +275,7 @@ typedef enum WASMOpcode {
     EXT_OP_TRY = 0xdb, /* try block with blocktype */
 
 #if WASM_ENABLE_DEBUG_INTERP != 0
-    DEBUG_OP_BREAK = 0xdb, /* debug break point */
+    DEBUG_OP_BREAK = 0xdc, /* debug break point */
 #endif
 
     /* Post-MVP extend op prefix */
@@ -1015,6 +1015,7 @@ typedef enum WASMAtomicEXTOpcode {
         HANDLE_OPCODE(EXT_OP_LOOP),                  /* 0xd8 */ \
         HANDLE_OPCODE(EXT_OP_IF),                    /* 0xd9 */ \
         HANDLE_OPCODE(EXT_OP_BR_TABLE_CACHE),        /* 0xda */ \
+        HANDLE_OPCODE(EXT_OP_TRY),                   /* 0xdb */ \
         SET_GOTO_TABLE_ELEM(WASM_OP_GC_PREFIX),      /* 0xfb */ \
         SET_GOTO_TABLE_ELEM(WASM_OP_MISC_PREFIX),    /* 0xfc */ \
         SET_GOTO_TABLE_SIMD_PREFIX_ELEM()            /* 0xfd */ \

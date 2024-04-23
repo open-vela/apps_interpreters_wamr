@@ -339,11 +339,6 @@
 #define WASM_ENABLE_AOT_STACK_FRAME 0
 #endif
 
-/* JIT stack frame */
-#ifndef WASM_ENABLE_JIT_STACK_FRAME
-#define WASM_ENABLE_JIT_STACK_FRAME 0
-#endif
-
 /* Heap verification */
 #ifndef BH_ENABLE_GC_VERIFY
 #define BH_ENABLE_GC_VERIFY 0
@@ -546,6 +541,14 @@
 #define GC_RTTOBJ_MAP_SIZE_DEFAULT 64
 #endif
 
+#ifndef WASM_ENABLE_EXCE_HANDLING
+#define WASM_ENABLE_EXCE_HANDLING 0
+#endif
+
+#ifndef WASM_ENABLE_TAGS
+#define WASM_ENABLE_TAGS 0
+#endif
+
 #ifndef WASM_ENABLE_SGX_IPFS
 #define WASM_ENABLE_SGX_IPFS 0
 #endif
@@ -590,8 +593,9 @@
 #define WASM_MAX_INSTANCE_CONTEXTS 8
 #endif
 
-#ifndef WASM_TABLE_MAX_SIZE
-#define WASM_TABLE_MAX_SIZE 1024
+/* linux perf support */
+#ifndef WASM_ENABLE_LINUX_PERF
+#define WASM_ENABLE_LINUX_PERF 0
 #endif
 
 /* Support registering quick AOT/JIT function entries of some func types

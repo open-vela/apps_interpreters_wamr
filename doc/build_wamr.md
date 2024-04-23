@@ -148,11 +148,7 @@ cmake -DWAMR_BUILD_PLATFORM=linux -DWAMR_BUILD_TARGET=ARM
 
 #### **Enable AOT stack frame feature**
 - **WAMR_BUILD_AOT_STACK_FRAME**=1/0, default to disable if not set
-> Note: if it is enabled, the AOT stack frames (like stack frame of classic interpreter but only necessary data is committed) will be created for AOT mode in function calls. And please add `--enable-dump-call-stack` option to wamrc during compiling AOT module.
-
-#### **ENABLE JIT stack frame feature**
-- **WAMR_BUILD_JIT_STACK_FRAME**=1/0, default to disable if not set
-> Note: if it is enabled, the JIT stack frames (like stack frame of classic interpreter but only necessary data is committed) will be created for JIT mode in function calls.
+> Note: if it is enabled, the AOT or JIT stack frames (like stack frame of classic interpreter but only necessary data is committed) will be created for AOT or JIT mode in function calls. And please add `--enable-dump-call-stack` option to wamrc during compiling AOT module.
 
 #### **Enable dump call stack feature**
 - **WAMR_BUILD_DUMP_CALL_STACK**=1/0, default to disable if not set
@@ -255,6 +251,12 @@ Currently we only profile the memory consumption of module, module_instance and 
 #### **Disable writing the linear memory base address to x86 GS segment register**
 - **WAMR_DISABLE_WRITE_GS_BASE**=1/0, default to enable if not set and supported by platform
 > Note: by default only platform [linux x86-64](https://github.com/bytecodealliance/wasm-micro-runtime/blob/5fb5119239220b0803e7045ca49b0a29fe65e70e/core/shared/platform/linux/platform_internal.h#L67) will enable this feature, for 32-bit platforms it's automatically disabled even when the flag is set to 0. In linux x86-64, writing the linear memory base address to x86 GS segment register may be used to speedup the linear memory access for LLVM AOT/JIT, when `--enable-segue=[<flags>]` option is added for `wamrc` or `iwasm`.
+
+> See [Enable segue optimization for wamrc when generating the aot file](./perf_tune.md#3-enable-segue-optimization-for-wamrc-when-generating-the-aot-file) for more details.
+
+#### **User defined linear memory allocator**
+- **WAMR_BUILD_ALLOC_WITH_USAGE**=1/0, default to disable if not set
+> Notes: by default, the linear memory is allocated by system. when it's set to 1 and Alloc_With_Allocator is selected, it will be allocated by customer.
 
 #### **Enable running PGO(Profile-Guided Optimization) instrumented AOT file**
 - **WAMR_BUILD_STATIC_PGO**=1/0, default to disable if not set
