@@ -320,7 +320,7 @@ assign_table_init_value(AOTModuleInstance *module_inst, AOTModule *module,
 
             if (flag == INIT_EXPR_TYPE_ARRAY_NEW_DEFAULT) {
                 type_idx = init_expr->u.array_new_default.type_index;
-                len = init_expr->u.array_new_default.N;
+                len = init_expr->u.array_new_default.length;
                 arr_init_val = &empty_val;
             }
             else {
@@ -344,8 +344,9 @@ assign_table_init_value(AOTModuleInstance *module_inst, AOTModule *module,
             }
 
             if (!(array_obj = wasm_array_obj_new_internal(
-                      module_inst->e->common.gc_heap_handle, rtt_type, len,
-                      arr_init_val))) {
+                      ((AOTModuleInstanceExtra *)module_inst->e)
+                          ->common.gc_heap_handle,
+                      rtt_type, len, arr_init_val))) {
                 set_error_buf(error_buf, error_buf_size,
                               "create array object failed");
                 return false;
@@ -530,7 +531,7 @@ global_instantiate(AOTModuleInstance *module_inst, AOTModule *module,
 
                 if (flag == INIT_EXPR_TYPE_ARRAY_NEW_DEFAULT) {
                     type_idx = init_expr->u.array_new_default.type_index;
-                    len = init_expr->u.array_new_default.N;
+                    len = init_expr->u.array_new_default.length;
                     arr_init_val = &empty_val;
                 }
                 else {
@@ -554,8 +555,9 @@ global_instantiate(AOTModuleInstance *module_inst, AOTModule *module,
                 }
 
                 if (!(array_obj = wasm_array_obj_new_internal(
-                          module_inst->e->common.gc_heap_handle, rtt_type, len,
-                          arr_init_val))) {
+                          ((AOTModuleInstanceExtra *)module_inst->e)
+                              ->common.gc_heap_handle,
+                          rtt_type, len, arr_init_val))) {
                     set_error_buf(error_buf, error_buf_size,
                                   "create array object failed");
                     return false;
@@ -1653,8 +1655,14 @@ aot_instantiate(AOTModule *module, AOTModuleInstance *parent,
     if (stack_size == 0)
         stack_size = DEFAULT_WASM_STACK_SIZE;
 #if WASM_ENABLE_SPEC_TEST != 0
+#if WASM_ENABLE_TAIL_CALL == 0
     if (stack_size < 128 * 1024)
         stack_size = 128 * 1024;
+#else
+    /* Some tail-call cases require large operand stack */
+    if (stack_size < 10 * 1024 * 1024)
+        stack_size = 10 * 1024 * 1024;
+#endif
 #endif
     module_inst->default_wasm_stack_size = stack_size;
 
@@ -3254,8 +3262,8 @@ aot_table_init(AOTModuleInstance *module_inst, uint32 tbl_idx,
     AOTTableInitData *tbl_seg;
     const AOTModule *module = (AOTModule *)module_inst->module;
     table_elem_type_t *table_elems;
-    InitializerExpression *init_values;
-    uint32 i;
+    InitializerExpression *tbl_seg_init_values = NULL, *init_values;
+    uint32 i, tbl_seg_len = 0;
 #if WASM_ENABLE_GC != 0
     void *func_obj;
 #endif
@@ -3266,7 +3274,15 @@ aot_table_init(AOTModuleInstance *module_inst, uint32 tbl_idx,
     tbl_seg = module->table_init_data_list[tbl_seg_idx];
     bh_assert(tbl_seg);
 
-    if (offset_len_out_of_bounds(src_offset, length, tbl_seg->value_count)
+    if (!bh_bitmap_get_bit(
+            ((AOTModuleInstanceExtra *)module_inst->e)->common.elem_dropped,
+            tbl_seg_idx)) {
+        /* table segment isn't dropped */
+        tbl_seg_init_values = tbl_seg->init_values;
+        tbl_seg_len = tbl_seg->value_count;
+    }
+
+    if (offset_len_out_of_bounds(src_offset, length, tbl_seg_len)
         || offset_len_out_of_bounds(dst_offset, length, tbl_inst->cur_size)) {
         aot_set_exception_with_id(module_inst, EXCE_OUT_OF_BOUNDS_TABLE_ACCESS);
         return;
@@ -3276,20 +3292,8 @@ aot_table_init(AOTModuleInstance *module_inst, uint32 tbl_idx,
         return;
     }
 
-    if (bh_bitmap_get_bit(
-            ((AOTModuleInstanceExtra *)module_inst->e)->common.elem_dropped,
-            tbl_seg_idx)) {
-        aot_set_exception_with_id(module_inst, EXCE_OUT_OF_BOUNDS_TABLE_ACCESS);
-        return;
-    }
-
-    if (!wasm_elem_is_passive(tbl_seg->mode)) {
-        aot_set_exception_with_id(module_inst, EXCE_OUT_OF_BOUNDS_TABLE_ACCESS);
-        return;
-    }
-
     table_elems = tbl_inst->elems + dst_offset;
-    init_values = tbl_seg->init_values + src_offset;
+    init_values = tbl_seg_init_values + src_offset;
 
     for (i = 0; i < length; i++) {
 #if WASM_ENABLE_GC != 0
@@ -3473,6 +3477,82 @@ get_func_name_from_index(const AOTModuleInstance *module_inst,
 #endif /* end of WASM_ENABLE_DUMP_CALL_STACK != 0 || \
           WASM_ENABLE_PERF_PROFILING != 0 */
 
+#if WASM_ENABLE_GC == 0
+bool
+aot_alloc_frame(WASMExecEnv *exec_env, uint32 func_index)
+{
+    AOTModuleInstance *module_inst = (AOTModuleInstance *)exec_env->module_inst;
+#if WASM_ENABLE_PERF_PROFILING != 0
+    AOTFuncPerfProfInfo *func_perf_prof =
+        module_inst->func_perf_profilings + func_index;
+#endif
+    AOTFrame *cur_frame, *frame;
+    uint32 size = (uint32)offsetof(AOTFrame, lp);
+
+    cur_frame = (AOTFrame *)exec_env->cur_frame;
+    if (!cur_frame)
+        frame = (AOTFrame *)exec_env->wasm_stack.bottom;
+    else
+        frame = (AOTFrame *)((uint8 *)cur_frame + size);
+
+    if ((uint8 *)frame + size > exec_env->wasm_stack.top_boundary) {
+        aot_set_exception(module_inst, "wasm operand stack overflow");
+        return false;
+    }
+
+    frame->func_index = func_index;
+    /* No need to initialize ip, it will be committed in jitted code
+       when needed */
+    /* frame->ip = NULL; */
+    frame->prev_frame = (AOTFrame *)exec_env->cur_frame;
+
+#if WASM_ENABLE_PERF_PROFILING != 0
+    frame->time_started = (uintptr_t)os_time_thread_cputime_us();
+    frame->func_perf_prof_info = func_perf_prof;
+#endif
+#if WASM_ENABLE_MEMORY_PROFILING != 0
+    {
+        uint32 wasm_stack_used =
+            (uint8 *)frame + size - exec_env->wasm_stack.bottom;
+        if (wasm_stack_used > exec_env->max_wasm_stack_used)
+            exec_env->max_wasm_stack_used = wasm_stack_used;
+    }
+#endif
+
+    exec_env->cur_frame = (struct WASMInterpFrame *)frame;
+
+    return true;
+}
+
+static inline void
+aot_free_frame_internal(WASMExecEnv *exec_env)
+{
+    AOTFrame *cur_frame = (AOTFrame *)exec_env->cur_frame;
+    AOTFrame *prev_frame = cur_frame->prev_frame;
+
+#if WASM_ENABLE_PERF_PROFILING != 0
+    uint64 time_elapsed =
+        (uintptr_t)os_time_thread_cputime_us() - cur_frame->time_started;
+
+    cur_frame->func_perf_prof_info->total_exec_time += time_elapsed;
+    cur_frame->func_perf_prof_info->total_exec_cnt++;
+
+    /* parent function */
+    if (prev_frame)
+        prev_frame->func_perf_prof_info->children_exec_time += time_elapsed;
+#endif
+
+    exec_env->cur_frame = (struct WASMInterpFrame *)prev_frame;
+}
+
+void
+aot_free_frame(WASMExecEnv *exec_env)
+{
+    aot_free_frame_internal(exec_env);
+}
+
+#else /* else of WASM_ENABLE_GC == 0 */
+
 bool
 aot_alloc_frame(WASMExecEnv *exec_env, uint32 func_index)
 {
@@ -3508,46 +3588,13 @@ aot_alloc_frame(WASMExecEnv *exec_env, uint32 func_index)
     frame = wasm_exec_env_alloc_wasm_frame(exec_env, frame_size);
 
     if (!frame) {
-        aot_set_exception((AOTModuleInstance *)exec_env->module_inst,
-                          "wasm operand stack overflow");
+        aot_set_exception(module_inst, "wasm operand stack overflow");
         return false;
     }
 
 #if WASM_ENABLE_PERF_PROFILING != 0
-    frame->time_started = (uintptr_t)os_time_get_boot_microsecond();
+    frame->time_started = (uintptr_t)os_time_thread_cputime_us();
     frame->func_perf_prof_info = func_perf_prof;
-#endif
-    frame->sp = frame->lp + max_local_cell_num;
-
-#if WASM_ENABLE_GC != 0
-    frame->frame_ref = (uint8 *)(frame->sp + max_stack_cell_num);
-
-    /* Initialize frame ref flags for import function */
-    if (func_index < module->import_func_count) {
-        AOTFuncType *func_type = module->import_funcs[func_index].func_type;
-        uint8 *frame_ref = frame->frame_ref;
-        uint32 i, j, k, value_type_cell_num;
-
-        for (i = 0, j = 0; i < func_type->param_count; i++) {
-            if (wasm_is_type_reftype(func_type->types[i])
-                && !wasm_is_reftype_i31ref(func_type->types[i])) {
-                frame_ref[j++] = 1;
-#if UINTPTR_MAX == UINT64_MAX
-                frame_ref[j++] = 1;
-#endif
-            }
-            else {
-                value_type_cell_num =
-                    wasm_value_type_cell_num(func_type->types[i]);
-                for (k = 0; k < value_type_cell_num; k++)
-                    frame_ref[j++] = 0;
-            }
-        }
-
-        for (j = func_type->param_cell_num; j < 2; j++) {
-            frame_ref[j] = 0;
-        }
-    }
 #endif
 
 #if WASM_ENABLE_GC != 0
@@ -3569,8 +3616,10 @@ aot_free_frame_internal(WASMExecEnv *exec_env)
     AOTFrame *prev_frame = cur_frame->prev_frame;
 
 #if WASM_ENABLE_PERF_PROFILING != 0
-    cur_frame->func_perf_prof_info->total_exec_time +=
-        (uintptr_t)os_time_get_boot_microsecond() - cur_frame->time_started;
+    uint64 time_elapsed =
+        (uintptr_t)os_time_thread_cputime_us() - cur_frame->time_started;
+
+    cur_frame->func_perf_prof_info->total_exec_time += time_elapsed;
     cur_frame->func_perf_prof_info->total_exec_cnt++;
 
     /* parent function */
@@ -3583,6 +3632,14 @@ aot_free_frame_internal(WASMExecEnv *exec_env)
 }
 
 void
+aot_free_frame(WASMExecEnv *exec_env)
+{
+    aot_free_frame_internal(exec_env);
+}
+
+#endif /* end of WASM_ENABLE_GC == 0 */
+
+void
 aot_frame_update_profile_info(WASMExecEnv *exec_env, bool alloc_frame)
 {
 #if WASM_ENABLE_PERF_PROFILING != 0
@@ -3592,20 +3649,33 @@ aot_frame_update_profile_info(WASMExecEnv *exec_env, bool alloc_frame)
         module_inst->func_perf_profilings + cur_frame->func_index;
 
     if (alloc_frame) {
-        cur_frame->time_started = (uintptr_t)os_time_get_boot_microsecond();
+        cur_frame->time_started = (uintptr_t)os_time_thread_cputime_us();
         cur_frame->func_perf_prof_info = func_perf_prof;
     }
     else {
-        cur_frame->func_perf_prof_info->total_exec_time +=
-            (uintptr_t)os_time_get_boot_microsecond() - cur_frame->time_started;
+        AOTFrame *prev_frame = cur_frame->prev_frame;
+        uint64 time_elapsed =
+            (uintptr_t)os_time_thread_cputime_us() - cur_frame->time_started;
+
+        cur_frame->func_perf_prof_info->total_exec_time += time_elapsed;
         cur_frame->func_perf_prof_info->total_exec_cnt++;
+
+        /* parent function */
+        if (prev_frame)
+            prev_frame->func_perf_prof_info->children_exec_time += time_elapsed;
     }
 #endif
 
 #if WASM_ENABLE_MEMORY_PROFILING != 0
     if (alloc_frame) {
+#if WASM_ENABLE_GC == 0
+        uint32 wasm_stack_used = (uint8 *)exec_env->cur_frame
+                                 + (uint32)offsetof(AOTFrame, lp)
+                                 - exec_env->wasm_stack.bottom;
+#else
         uint32 wasm_stack_used =
             exec_env->wasm_stack.top - exec_env->wasm_stack.bottom;
+#endif
         if (wasm_stack_used > exec_env->max_wasm_stack_used)
             exec_env->max_wasm_stack_used = wasm_stack_used;
     }
@@ -3674,11 +3744,18 @@ aot_create_call_stack(struct WASMExecEnv *exec_env)
             }
             bh_memcpy_s(frame.lp, lp_size, cur_frame->lp, lp_size);
 
-            /* Only save frame sp when fast-interpr isn't enabled */
-            frame.sp = frame.lp + (cur_frame->sp - cur_frame->lp);
 #if WASM_ENABLE_GC != 0
+            uint32 local_ref_flags_cell_num =
+                module->func_local_ref_flags[frame.func_index]
+                    .local_ref_flag_cell_num;
+            uint8 *local_ref_flags =
+                module->func_local_ref_flags[frame.func_index].local_ref_flags;
+            frame.sp = frame.lp + (cur_frame->sp - cur_frame->lp);
             frame.frame_ref = (uint8 *)frame.lp
                               + (cur_frame->frame_ref - (uint8 *)cur_frame->lp);
+            /* copy local ref flags from AOT module */
+            bh_memcpy_s(frame.frame_ref, local_ref_flags_cell_num,
+                        local_ref_flags, lp_size);
 #endif
         }
 
@@ -3801,6 +3878,44 @@ aot_dump_perf_profiling(const AOTModuleInstance *module_inst)
                       perf_prof->total_exec_cnt,
                       perf_prof->children_exec_time / 1000.0f);
     }
+}
+
+double
+aot_summarize_wasm_execute_time(const AOTModuleInstance *inst)
+{
+    double ret = 0;
+
+    AOTModule *module = (AOTModule *)inst->module;
+    uint32 total_func_count = module->import_func_count + module->func_count, i;
+
+    for (i = 0; i < total_func_count; i++) {
+        AOTFuncPerfProfInfo *perf_prof =
+            (AOTFuncPerfProfInfo *)inst->func_perf_profilings + i;
+        ret += (perf_prof->total_exec_time - perf_prof->children_exec_time)
+               / 1000.0f;
+    }
+
+    return ret;
+}
+
+double
+aot_get_wasm_func_exec_time(const AOTModuleInstance *inst,
+                            const char *func_name)
+{
+    AOTModule *module = (AOTModule *)inst->module;
+    uint32 total_func_count = module->import_func_count + module->func_count, i;
+
+    for (i = 0; i < total_func_count; i++) {
+        const char *name_in_wasm = get_func_name_from_index(inst, i);
+        if (name_in_wasm && strcmp(func_name, name_in_wasm) == 0) {
+            AOTFuncPerfProfInfo *perf_prof =
+                (AOTFuncPerfProfInfo *)inst->func_perf_profilings + i;
+            return (perf_prof->total_exec_time - perf_prof->children_exec_time)
+                   / 1000.0f;
+        }
+    }
+
+    return -1.0;
 }
 #endif /* end of WASM_ENABLE_PERF_PROFILING != 0 */
 
@@ -4508,13 +4623,36 @@ static bool
 aot_frame_traverse_gc_rootset(WASMExecEnv *exec_env, void *heap)
 {
     AOTFrame *frame;
+    AOTModule *module;
+    LocalRefFlag frame_local_flags;
     WASMObjectRef gc_obj;
-    int i;
+    uint32 i, local_ref_flag_cell_num;
 
+    module = (AOTModule *)wasm_exec_env_get_module(exec_env);
     frame = (AOTFrame *)wasm_exec_env_get_cur_frame(exec_env);
     for (; frame; frame = frame->prev_frame) {
+        /* local ref flags */
+        frame_local_flags = module->func_local_ref_flags[frame->func_index];
+        local_ref_flag_cell_num = frame_local_flags.local_ref_flag_cell_num;
+        for (i = 0; i < local_ref_flag_cell_num; i++) {
+            if (frame_local_flags.local_ref_flags[i]) {
+                gc_obj = GET_REF_FROM_ADDR(frame->lp + i);
+                if (wasm_obj_is_created_from_heap(gc_obj)) {
+                    if (mem_allocator_add_root((mem_allocator_t)heap, gc_obj)) {
+                        return false;
+                    }
+                }
+#if UINTPTR_MAX == UINT64_MAX
+                bh_assert(frame_local_flags.local_ref_flags[i + 1]);
+                i++;
+#endif
+            }
+        }
+
+        /* stack ref flags */
         uint8 *frame_ref = frame->frame_ref;
-        for (i = 0; i < frame->sp - frame->lp; i++) {
+        for (i = local_ref_flag_cell_num; i < (uint32)(frame->sp - frame->lp);
+             i++) {
             if (frame_ref[i]) {
                 gc_obj = GET_REF_FROM_ADDR(frame->lp + i);
                 if (wasm_obj_is_created_from_heap(gc_obj)) {

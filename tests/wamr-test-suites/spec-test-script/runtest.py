@@ -1117,6 +1117,7 @@ def compile_wasm_to_aot(wasm_tempfile, aot_tempfile, runner, opts, r, output = '
 
     if opts.gc:
         cmd.append("--enable-gc")
+        cmd.append("--enable-tail-call")
 
     if opts.memory64:
         cmd.append("--enable-memory64")

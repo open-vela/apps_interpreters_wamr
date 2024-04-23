@@ -217,14 +217,15 @@ get_mem_info_size(AOTCompContext *comp_ctx, AOTCompData *comp_data)
                                          comp_data->mem_init_data_count);
 }
 
-#if WASM_ENABLE_GC != 0
 static uint32
 get_init_expr_size(const AOTCompContext *comp_ctx, const AOTCompData *comp_data,
                    InitializerExpression *expr)
 {
     /* init_expr_type */
     uint32 size = sizeof(uint32);
+#if WASM_ENABLE_GC != 0
     WASMModule *module = comp_data->wasm_module;
+#endif
 
     /* + init value size */
     switch (expr->init_expr_type) {
@@ -234,8 +235,6 @@ get_init_expr_size(const AOTCompContext *comp_ctx, const AOTCompData *comp_data,
         case INIT_EXPR_TYPE_I32_CONST:
         case INIT_EXPR_TYPE_F32_CONST:
         case INIT_EXPR_TYPE_GET_GLOBAL:
-        case INIT_EXPR_TYPE_FUNCREF_CONST:
-        case INIT_EXPR_TYPE_I31_NEW:
             size += sizeof(uint32);
             break;
         case INIT_EXPR_TYPE_I64_CONST:
@@ -245,8 +244,14 @@ get_init_expr_size(const AOTCompContext *comp_ctx, const AOTCompData *comp_data,
         case INIT_EXPR_TYPE_V128_CONST:
             size += sizeof(uint64) * 2;
             break;
+        case INIT_EXPR_TYPE_FUNCREF_CONST:
         case INIT_EXPR_TYPE_REFNULL_CONST:
-            /* type_index */
+            /* ref_index */
+            size += sizeof(uint32);
+            break;
+#if WASM_ENABLE_GC != 0
+        case INIT_EXPR_TYPE_I31_NEW:
+            /* i32 */
             size += sizeof(uint32);
             break;
         case INIT_EXPR_TYPE_STRUCT_NEW:
@@ -264,12 +269,17 @@ get_init_expr_size(const AOTCompContext *comp_ctx, const AOTCompData *comp_data,
                 WASMStructType *struct_type =
                     (WASMStructType *)
                         module->types[struct_new_init_values->type_idx];
+                uint32 field_size;
+
                 bh_assert(struct_type);
                 bh_assert(struct_type->field_count
                           == struct_new_init_values->count);
 
-                size += wasm_value_type_size_internal(
+                field_size = wasm_value_type_size_internal(
                     struct_type->fields[i].field_type, comp_ctx->pointer_size);
+                if (field_size < sizeof(uint32))
+                    field_size = sizeof(uint32);
+                size += field_size;
             }
             break;
         }
@@ -277,83 +287,70 @@ get_init_expr_size(const AOTCompContext *comp_ctx, const AOTCompData *comp_data,
             /* type_index */
             size += sizeof(uint32);
             break;
-        case INIT_EXPR_TYPE_ARRAY_NEW:
-            /* type_index + len + elem */
-            size += sizeof(uint32) * 2 + sizeof(WASMValue);
-            break;
         case INIT_EXPR_TYPE_ARRAY_NEW_DEFAULT:
-            /* type_index + len */
-            size += sizeof(uint32) * 2;
+            /* array_elem_type + type_index + len */
+            size += sizeof(uint32) * 3;
             break;
+        case INIT_EXPR_TYPE_ARRAY_NEW:
         case INIT_EXPR_TYPE_ARRAY_NEW_FIXED:
         {
             WASMArrayNewInitValues *array_new_init_values =
                 (WASMArrayNewInitValues *)expr->u.data;
             WASMArrayType *array_type = NULL;
-
-            bh_assert(array_type);
-            bh_assert(array_new_init_values->type_idx < module->type_count);
+            uint32 value_count;
 
             array_type =
                 (WASMArrayType *)module->types[array_new_init_values->type_idx];
 
-            /* type_index + len + elems */
-            size += sizeof(uint32) * 2
-                    + array_new_init_values->length
-                          * wasm_value_type_size_internal(
-                              array_type->elem_type, comp_ctx->pointer_size);
+            bh_assert(array_type);
+            bh_assert(array_new_init_values->type_idx < module->type_count);
+
+            value_count =
+                (expr->init_expr_type == INIT_EXPR_TYPE_ARRAY_NEW_FIXED)
+                    ? array_new_init_values->length
+                    : 1;
+
+            /* array_elem_type + type_index + len + elems */
+            size += sizeof(uint32) * 3
+                    + wasm_value_type_size_internal(array_type->elem_type,
+                                                    comp_ctx->pointer_size)
+                          * value_count;
             break;
         }
+#endif /* end of WASM_ENABLE_GC != 0 */
         default:
             bh_assert(0);
     }
 
     return size;
 }
-#endif /* end of WASM_ENABLE_GC != 0 */
 
 static uint32
 get_table_init_data_size(AOTCompContext *comp_ctx,
                          AOTTableInitData *table_init_data)
 {
-#if WASM_ENABLE_GC != 0
-    if (comp_ctx->enable_gc) {
-        uint32 size, i;
+    uint32 size, i;
 
-        /*
-         * mode (4 bytes), elem_type (4 bytes)
-         *
-         * table_index(4 bytes) + init expr type (4 bytes) + init expr value (8
-         * bytes) + sizeof(WASMRefType)
-         * + value count (4 bytes) + init_values
-         */
-        size = (uint32)(sizeof(uint32) * 2 + sizeof(uint32) + sizeof(uint32)
-                        + sizeof(uint64) + sizeof(uint32))
-               /* Size of WasmRefType - inner padding (ref type + nullable +
-                  heap_type) */
-               + 8;
-
-        for (i = 0; i < table_init_data->value_count; i++) {
-            size += get_init_expr_size(comp_ctx, comp_ctx->comp_data,
-                                       &table_init_data->init_values[i]);
-        }
-
-        return size;
-    }
-#endif
     /*
      * mode (4 bytes), elem_type (4 bytes)
      *
      * table_index(4 bytes) + init expr type (4 bytes) + init expr value (8
-     * bytes) + sizeof(WASMRefType)
-     * + func index count (4 bytes) + func indexes
+     * bytes)
      */
-    return (uint32)(sizeof(uint32) * 2 + sizeof(uint32) + sizeof(uint32)
-                    + sizeof(uint64) + sizeof(uint32)
-                    + comp_ctx->pointer_size * table_init_data->value_count)
+    size = (uint32)(sizeof(uint32) * 2 + sizeof(uint32) + sizeof(uint32)
+                    + sizeof(uint64))
            /* Size of WasmRefType - inner padding (ref type + nullable +
               heap_type) */
            + 8;
+
+    /* + value count/func index count (4 bytes) + init_values */
+    size += sizeof(uint32);
+    for (i = 0; i < table_init_data->value_count; i++) {
+        size += get_init_expr_size(comp_ctx, comp_ctx->comp_data,
+                                   &table_init_data->init_values[i]);
+    }
+
+    return size;
 }
 
 static uint32
@@ -395,13 +392,13 @@ get_import_table_size(const AOTCompContext *comp_ctx,
      * ------------------------------
      * | import_table_count
      * ------------------------------
-     * |                  | U8 elem_type
-     * |                  | U8 table_flags
-     * |                  | U8 possible_grow
-     * | AOTImpotTable[N] | U8 elem_ref_type.nullable (for GC only)
-     * |                  | U32 table_init_size
-     * |                  | U32 table_max_size
-     * |                  | U32 elem_ref_type.heap_type (for GC only)
+     * |                   | U8 elem_type
+     * |                   | U8 table_flags
+     * |                   | U8 possible_grow
+     * | AOTImportTable[N] | U8 elem_ref_type.nullable (for GC only)
+     * |                   | U32 table_init_size
+     * |                   | U32 table_max_size
+     * |                   | U32 elem_ref_type.heap_type (for GC only)
      * ------------------------------
      */
     uint32 size = 0, i;
@@ -483,13 +480,13 @@ get_table_info_size(AOTCompContext *comp_ctx, AOTCompData *comp_data)
                                            comp_data->table_init_data_count);
 }
 
-#if WASM_ENABLE_GC != 0
 static uint32
 get_func_type_size(AOTCompContext *comp_ctx, AOTFuncType *func_type)
 {
-    /* type flag + is_sub_final + parent_type_idx + rec_count + rec_idx + param
-     * count + result count
-     * + ref_type_map_count + types + context of ref_type_map */
+#if WASM_ENABLE_GC != 0
+    /* type flag + equivalence type flag + is_sub_final + parent_type_idx
+       + rec_count + rec_idx + param count + result count
+       + ref_type_map_count + types + context of ref_type_map */
     if (comp_ctx->enable_gc) {
         uint32 size = 0;
 
@@ -518,10 +515,11 @@ get_func_type_size(AOTCompContext *comp_ctx, AOTFuncType *func_type)
 
         return size;
     }
-    else {
-        /* type flag + is_sub_final + parent_type_idx + param count + result
-         * count + types */
-        return (uint32)sizeof(uint16) * 6 + func_type->param_count
+    else
+#endif
+    {
+        /* type flag + param count + result count + types */
+        return (uint32)sizeof(uint16) * 3 + func_type->param_count
                + func_type->result_count;
     }
 }
@@ -586,16 +584,6 @@ get_array_type_size(AOTCompContext *comp_ctx, AOTArrayType *array_type)
     }
 
     return size;
-}
-
-#else
-static uint32
-get_func_type_size(AOTCompContext *comp_ctx, AOTFuncType *func_type)
-{
-    /* type flags + parent type idx + is_sub_final + param count + result count
-     * + types */
-    return (uint32)sizeof(uint16) * 6 + func_type->param_count
-           + func_type->result_count;
 }
 #endif
 
@@ -689,23 +677,11 @@ get_import_global_info_size(AOTCompContext *comp_ctx, AOTCompData *comp_data)
 static uint32
 get_global_size(AOTCompContext *comp_ctx, AOTGlobal *global)
 {
-#if WASM_ENABLE_GC != 0
-    if (comp_ctx->enable_gc) {
-        /* type (1 byte) + is_mutable (1 byte) + padding (2 bytes)
-                + init expr value (include init expr type) */
-        return sizeof(uint8) * 2 + sizeof(uint8) * 2
-               + get_init_expr_size(comp_ctx, comp_ctx->comp_data,
-                                    &global->init_expr);
-    }
-#endif
-    if (global->init_expr.init_expr_type != INIT_EXPR_TYPE_V128_CONST)
-        /* type (1 byte) + is_mutable (1 byte)
-        + init expr type (2 bytes) + init expr value (8 bytes) */
-        return sizeof(uint8) * 2 + sizeof(uint16) + sizeof(uint64);
-    else
-        /* type (1 byte) + is_mutable (1 byte)
-           + init expr type (2 bytes) + v128 value (16 bytes) */
-        return sizeof(uint8) * 2 + sizeof(uint16) + sizeof(uint64) * 2;
+    /* type (1 byte) + is_mutable (1 byte) + padding (2 bytes)
+            + init expr value (include init expr type) */
+    return sizeof(uint8) * 2 + sizeof(uint8) * 2
+           + get_init_expr_size(comp_ctx, comp_ctx->comp_data,
+                                &global->init_expr);
 }
 
 static uint32
@@ -855,12 +831,6 @@ get_func_section_size(AOTCompContext *comp_ctx, AOTCompData *comp_data,
     /* aot_func#xxx + aot_func_internal#xxx in XIP mode for xtensa */
     if (need_call_wrapped_indirect(obj_data))
         size *= 2;
-
-    /* max_local_cell_nums */
-    size += (uint32)sizeof(uint32) * comp_data->func_count;
-
-    /* max_stack_cell_nums */
-    size += (uint32)sizeof(uint32) * comp_data->func_count;
 
     /* max_local_cell_nums */
     size += (uint32)sizeof(uint32) * comp_data->func_count;
@@ -1223,15 +1193,6 @@ get_native_symbol_list_size(AOTCompContext *comp_ctx)
 
     return len;
 }
-
-#if WASM_ENABLE_STRINGREF != 0
-static uint32
-get_string_literal_section_size(AOTCompContext *comp_ctx,
-                                AOTCompData *comp_data);
-#endif
-
-static uint32
-get_name_section_size(AOTCompData *comp_data);
 
 #if WASM_ENABLE_STRINGREF != 0
 static uint32
@@ -1855,125 +1816,6 @@ aot_emit_mem_info(uint8 *buf, uint8 *buf_end, uint32 *p_offset,
     return true;
 }
 
-#if WASM_ENABLE_GC != 0
-static bool
-aot_emit_init_expr(uint8 *buf, uint8 *buf_end, uint32 *p_offset,
-                   AOTCompContext *comp_ctx, InitializerExpression *expr)
-{
-    uint32 offset = *p_offset;
-    WASMModule *module = comp_ctx->comp_data->wasm_module;
-
-    *p_offset = offset = align_uint(offset, 4);
-
-    EMIT_U32(expr->init_expr_type);
-    switch (expr->init_expr_type) {
-        case INIT_EXPR_NONE:
-            break;
-        case INIT_EXPR_TYPE_I32_CONST:
-        case INIT_EXPR_TYPE_F32_CONST:
-            EMIT_U32(expr->u.i32);
-            break;
-        case INIT_EXPR_TYPE_I64_CONST:
-        case INIT_EXPR_TYPE_F64_CONST:
-            EMIT_U64(expr->u.i64);
-            break;
-        case INIT_EXPR_TYPE_V128_CONST:
-            EMIT_V128(expr->u.v128);
-            break;
-        case INIT_EXPR_TYPE_GET_GLOBAL:
-            EMIT_U32(expr->u.global_index);
-            break;
-        case INIT_EXPR_TYPE_REFNULL_CONST:
-            EMIT_U32(expr->u.type_index);
-            break;
-        case INIT_EXPR_TYPE_FUNCREF_CONST:
-            EMIT_U32(expr->u.ref_index);
-            break;
-        case INIT_EXPR_TYPE_I31_NEW:
-            EMIT_U32(expr->u.i32);
-            break;
-        case INIT_EXPR_TYPE_STRUCT_NEW:
-        {
-            uint32 i;
-            WASMStructNewInitValues *init_values =
-                (WASMStructNewInitValues *)expr->u.data;
-            WASMStructType *struct_type = NULL;
-
-            EMIT_U32(init_values->type_idx);
-            EMIT_U32(init_values->count);
-
-            bh_assert(init_values->type_idx < module->type_count);
-
-            struct_type =
-                (WASMStructType *)module->types[init_values->type_idx];
-
-            bh_assert(struct_type);
-            bh_assert(struct_type->field_count == init_values->count);
-
-            for (i = 0; i < init_values->count; i++) {
-                uint32 field_size = wasm_value_type_size_internal(
-                    struct_type->fields[i].field_type, comp_ctx->pointer_size);
-                if (field_size <= sizeof(uint32))
-                    EMIT_U32(init_values->fields[i].u32);
-                else if (field_size == sizeof(uint64))
-                    EMIT_U64(init_values->fields[i].u64);
-                else if (field_size == sizeof(uint64) * 2)
-                    EMIT_V128(init_values->fields[i].v128);
-                else {
-                    bh_assert(0);
-                }
-            }
-
-            break;
-        }
-        case INIT_EXPR_TYPE_STRUCT_NEW_DEFAULT:
-            EMIT_U32(expr->u.type_index);
-            break;
-        case INIT_EXPR_TYPE_ARRAY_NEW:
-        case INIT_EXPR_TYPE_ARRAY_NEW_DEFAULT:
-        case INIT_EXPR_TYPE_ARRAY_NEW_FIXED:
-        {
-            uint32 i;
-            WASMArrayNewInitValues *init_values =
-                (WASMArrayNewInitValues *)expr->u.data;
-            WASMArrayType *array_type = NULL;
-
-            EMIT_U32(init_values->type_idx);
-            EMIT_U32(init_values->length);
-
-            bh_assert(init_values->type_idx < module->type_count);
-
-            array_type = (WASMArrayType *)module->types[init_values->type_idx];
-
-            bh_assert(array_type);
-
-            if (expr->init_expr_type != INIT_EXPR_TYPE_ARRAY_NEW_DEFAULT) {
-                uint32 field_size = wasm_value_type_size_internal(
-                    array_type->elem_type, comp_ctx->pointer_size);
-                for (i = 0; i < init_values->length; i++) {
-                    if (field_size <= sizeof(uint32))
-                        EMIT_U32(init_values->elem_data[i].u32);
-                    else if (field_size == sizeof(uint64))
-                        EMIT_U64(init_values->elem_data[i].u64);
-                    else if (field_size == sizeof(uint64) * 2)
-                        EMIT_V128(init_values->elem_data[i].v128);
-                    else {
-                        bh_assert(0);
-                    }
-                }
-            }
-            break;
-        }
-        default:
-            aot_set_last_error("invalid init expr type.");
-            return false;
-    }
-
-    *p_offset = offset;
-    return true;
-}
-#endif /* end of WASM_ENABLE_GC != 0 */
-
 static bool
 aot_emit_init_expr(uint8 *buf, uint8 *buf_end, uint32 *p_offset,
                    AOTCompContext *comp_ctx, InitializerExpression *expr)
@@ -2213,26 +2055,9 @@ aot_emit_table_info(uint8 *buf, uint8 *buf_end, uint32 *p_offset,
         }
         EMIT_U32(init_datas[i]->value_count);
         for (j = 0; j < init_datas[i]->value_count; j++) {
-#if WASM_ENABLE_GC != 0
-            if (comp_ctx->enable_gc) {
-                if (!aot_emit_init_expr(buf, buf_end, &offset, comp_ctx,
-                                        &init_datas[i]->init_values[j]))
-                    return false;
-            }
-            else
-#endif
-            {
-                bh_assert(init_datas[i]->init_values[j].init_expr_type
-                              == INIT_EXPR_TYPE_REFNULL_CONST
-                          || init_datas[i]->init_values[j].init_expr_type
-                                 == INIT_EXPR_TYPE_FUNCREF_CONST);
-                if (comp_ctx->pointer_size == 4) {
-                    EMIT_U32(init_datas[i]->init_values[j].u.ref_index);
-                }
-                else {
-                    EMIT_U64(init_datas[i]->init_values[j].u.ref_index);
-                }
-            }
+            if (!aot_emit_init_expr(buf, buf_end, &offset, comp_ctx,
+                                    &init_datas[i]->init_values[j]))
+                return false;
         }
     }
 
@@ -2379,14 +2204,14 @@ aot_emit_type_info(uint8 *buf, uint8 *buf_end, uint32 *p_offset,
 
         for (i = 0; i < comp_data->type_count; i++) {
             offset = align_uint(offset, 4);
-            /* If GC enabled, only emit function type info */
+            /* If GC is disabled, only emit function type info */
             EMIT_U16(WASM_TYPE_FUNC);
-            /* Emit dummy is_sub_final */
-            EMIT_U16(0);
-            /* Emit parent_type_index */
-            EMIT_U32(0);
+            /* Omit to emit dummy padding for is_sub_final,
+             * parent_type_index, rec_count, rec_idx, 10 bytes in total */
             EMIT_U16(func_types[i]->param_count);
             EMIT_U16(func_types[i]->result_count);
+            /* Omit to emit dummy padding for ref_type_map_count, 2 bytes in
+             * total */
             EMIT_BUF(func_types[i]->types,
                      func_types[i]->param_count + func_types[i]->result_count);
         }
@@ -2450,21 +2275,11 @@ aot_emit_global_info(uint8 *buf, uint8 *buf_end, uint32 *p_offset,
         offset = align_uint(offset, 4);
         EMIT_U8(global->type);
         EMIT_U8(global->is_mutable);
-#if WASM_ENABLE_GC != 0
-        if (comp_ctx->enable_gc) {
-            if (!aot_emit_init_expr(buf, buf_end, &offset, comp_ctx,
-                                    &global->init_expr))
-                return false;
-        }
-        else
-#endif /* end of WASM_ENABLE_GC != 0 */
-        {
-            EMIT_U16(global->init_expr.init_expr_type);
-            if (global->init_expr.init_expr_type != INIT_EXPR_TYPE_V128_CONST)
-                EMIT_U64(global->init_expr.u.i64);
-            else
-                EMIT_V128(global->init_expr.u.v128);
-        }
+
+        offset = align_uint(offset, 4);
+        if (!aot_emit_init_expr(buf, buf_end, &offset, comp_ctx,
+                                &global->init_expr))
+            return false;
     }
 
     if (offset - *p_offset != get_global_info_size(comp_ctx, comp_data)) {
@@ -2807,6 +2622,62 @@ aot_emit_func_section(uint8 *buf, uint8 *buf_end, uint32 *p_offset,
 
     for (i = 0; i < comp_data->func_count; i++)
         EMIT_U32(funcs[i]->max_stack_cell_num);
+
+#if WASM_ENABLE_GC != 0
+    if (comp_ctx->enable_gc) {
+        /* emit func_local_ref_flag arrays for both import and AOTed funcs */
+        AOTFuncType *func_type;
+        uint32 j, local_ref_flags_cell_num, paddings;
+
+        for (i = 0; i < comp_data->import_func_count; i++) {
+            func_type = comp_data->import_funcs[i].func_type;
+            /* recalculate cell_num based on target pointer size */
+            local_ref_flags_cell_num = 0;
+            for (j = 0; j < func_type->param_count; j++) {
+                local_ref_flags_cell_num += wasm_value_type_cell_num_internal(
+                    func_type->types[j], comp_ctx->pointer_size);
+            }
+            paddings =
+                local_ref_flags_cell_num < 2 ? 2 - local_ref_flags_cell_num : 0;
+            local_ref_flags_cell_num =
+                local_ref_flags_cell_num > 2 ? local_ref_flags_cell_num : 2;
+
+            offset = align_uint(offset, 4);
+            EMIT_U32(local_ref_flags_cell_num);
+            for (j = 0; j < func_type->param_count; j++) {
+                if (!aot_emit_ref_flag(buf, buf_end, &offset,
+                                       comp_ctx->pointer_size,
+                                       func_type->types[j]))
+                    return false;
+            }
+            for (j = 0; j < paddings; j++)
+                EMIT_U8(0);
+        }
+
+        for (i = 0; i < comp_data->func_count; i++) {
+            func_type = funcs[i]->func_type;
+            local_ref_flags_cell_num =
+                funcs[i]->param_cell_num + funcs[i]->local_cell_num;
+
+            offset = align_uint(offset, 4);
+            EMIT_U32(local_ref_flags_cell_num);
+            /* emit local_ref_flag for param variables */
+            for (j = 0; j < func_type->param_count; j++) {
+                if (!aot_emit_ref_flag(buf, buf_end, &offset,
+                                       comp_ctx->pointer_size,
+                                       func_type->types[j]))
+                    return false;
+            }
+            /* emit local_ref_flag for local variables */
+            for (j = 0; j < funcs[i]->local_count; j++) {
+                if (!aot_emit_ref_flag(buf, buf_end, &offset,
+                                       comp_ctx->pointer_size,
+                                       funcs[i]->local_types_wp[j]))
+                    return false;
+            }
+        }
+    }
+#endif /* end of WASM_ENABLE_GC != 0 */
 
     if (offset - *p_offset != section_size + sizeof(uint32) * 2) {
         aot_set_last_error("emit function section failed.");
@@ -4576,13 +4447,10 @@ aot_obj_data_create(AOTCompContext *comp_ctx)
         obj_data->target_info.feature_flags |= WASM_FEATURE_BULK_MEMORY;
     }
     if (comp_ctx->enable_thread_mgr) {
-        obj_data->target_info.feature_flags |= WASM_FEATURE_THREADS;
+        obj_data->target_info.feature_flags |= WASM_FEATURE_MULTI_THREAD;
     }
     if (comp_ctx->enable_ref_types) {
         obj_data->target_info.feature_flags |= WASM_FEATURE_REF_TYPES;
-    }
-    if (comp_ctx->enable_tail_call) {
-        obj_data->target_info.feature_flags |= WASM_FEATURE_TAIL_CALL;
     }
     if (comp_ctx->enable_gc) {
         obj_data->target_info.feature_flags |= WASM_FEATURE_GARBAGE_COLLECTION;
@@ -4643,7 +4511,6 @@ aot_emit_aot_file_buf(AOTCompContext *comp_ctx, AOTCompData *comp_data,
         || !aot_emit_relocation_section(buf, buf_end, &offset, comp_ctx,
                                         comp_data, obj_data)
         || !aot_emit_native_symbol(buf, buf_end, &offset, comp_ctx)
-        || !aot_emit_name_section(buf, buf_end, &offset, comp_data, comp_ctx)
         || !aot_emit_custom_sections(buf, buf_end, &offset, comp_data, comp_ctx)
 #if WASM_ENABLE_STRINGREF != 0
         || !aot_emit_string_literal_section(buf, buf_end, &offset, comp_data,
