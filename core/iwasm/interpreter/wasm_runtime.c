@@ -1024,7 +1024,7 @@ globals_instantiate(WASMModule *module, WASMModuleInstance *module_inst,
 
                 if (flag == INIT_EXPR_TYPE_ARRAY_NEW_DEFAULT) {
                     type_idx = init_expr->u.array_new_default.type_index;
-                    len = init_expr->u.array_new_default.N;
+                    len = init_expr->u.array_new_default.length;
                     arr_init_val = &empty_val;
                 }
                 else {
@@ -2261,8 +2261,8 @@ wasm_instantiate(WASMModule *module, WASMModuleInstance *parent,
 #endif
 #if WASM_ENABLE_GC != 0
                 case VALUE_TYPE_EXTERNREF:
-                    /* UINT32_MAX indicates that it is an null reference */
-                    bh_assert((uint32)global->initial_value.i32 == UINT32_MAX);
+                    /* the initial value should be a null reference */
+                    bh_assert(global->initial_value.gc_obj == NULL_REF);
                     STORE_PTR((void **)global_data, NULL_REF);
                     global_data += sizeof(void *);
                     break;
@@ -2298,7 +2298,7 @@ wasm_instantiate(WASMModule *module, WASMModuleInstance *parent,
                             NULL, module_inst->module->types,
                             module_inst->module->type_count)) {
                         WASMFuncObjectRef func_obj = NULL;
-                        /* UINT32_MAX indicates that it is an null reference */
+                        /* UINT32_MAX indicates that it is a null reference */
                         if ((uint32)global->initial_value.i32 != UINT32_MAX) {
                             if (!(func_obj = wasm_create_func_obj(
                                       module_inst, global->initial_value.i32,
@@ -2662,7 +2662,7 @@ wasm_instantiate(WASMModule *module, WASMModuleInstance *parent,
 #else
                     WASMFuncObjectRef func_obj;
                     uint32 func_idx = init_expr->u.ref_index;
-                    /* UINT32_MAX indicates that it is an null reference */
+                    /* UINT32_MAX indicates that it is a null reference */
                     if (func_idx != UINT32_MAX) {
                         if (!(func_obj = wasm_create_func_obj(
                                   module_inst, func_idx, false, error_buf,
@@ -2757,7 +2757,7 @@ wasm_instantiate(WASMModule *module, WASMModuleInstance *parent,
 
                     if (flag == INIT_EXPR_TYPE_ARRAY_NEW_DEFAULT) {
                         type_idx = init_expr->u.array_new_default.type_index;
-                        len = init_expr->u.array_new_default.N;
+                        len = init_expr->u.array_new_default.length;
                         arr_init_val = &empty_val;
                     }
                     else {
@@ -2766,7 +2766,7 @@ wasm_instantiate(WASMModule *module, WASMModuleInstance *parent,
                         type_idx = init_values->type_idx;
                         len = init_values->length;
 
-                        if (flag == INIT_EXPR_TYPE_ARRAY_NEW_DEFAULT) {
+                        if (flag == INIT_EXPR_TYPE_ARRAY_NEW_FIXED) {
                             arr_init_val = init_values->elem_data;
                         }
                     }
@@ -3921,13 +3921,13 @@ wasm_interp_create_call_stack(struct WASMExecEnv *exec_env)
             }
             bh_memcpy_s(frame.lp, lp_size, cur_frame->lp, lp_size);
 
+#if WASM_ENABLE_GC != 0
 #if WASM_ENABLE_FAST_INTERP == 0
             frame.sp = frame.lp + (cur_frame->sp - cur_frame->lp);
 #else
             /* for fast-interp, let frame sp point to the end of the frame */
             frame.sp = frame.lp + all_cell_num;
 #endif
-#if WASM_ENABLE_GC != 0
             frame.frame_ref = (uint8 *)frame.lp
                               + (wasm_interp_get_frame_ref(cur_frame)
                                  - (uint8 *)cur_frame->lp);
@@ -4250,8 +4250,8 @@ llvm_jit_table_init(WASMModuleInstance *module_inst, uint32 tbl_idx,
     WASMTableInstance *tbl_inst;
     WASMTableSeg *tbl_seg;
     table_elem_type_t *table_elems;
-    InitializerExpression *init_values;
-    uint32 i;
+    InitializerExpression *tbl_seg_init_values = NULL, *init_values;
+    uint32 i, tbl_seg_len = 0;
 #if WASM_ENABLE_GC != 0
     void *func_obj;
 #endif
@@ -4264,7 +4264,13 @@ llvm_jit_table_init(WASMModuleInstance *module_inst, uint32 tbl_idx,
     bh_assert(tbl_inst);
     bh_assert(tbl_seg);
 
-    if (offset_len_out_of_bounds(src_offset, length, tbl_seg->value_count)
+    if (!bh_bitmap_get_bit(module_inst->e->common.elem_dropped, tbl_seg_idx)) {
+        /* table segment isn't dropped */
+        tbl_seg_init_values = tbl_seg->init_values;
+        tbl_seg_len = tbl_seg->value_count;
+    }
+
+    if (offset_len_out_of_bounds(src_offset, length, tbl_seg_len)
         || offset_len_out_of_bounds(dst_offset, length, tbl_inst->cur_size)) {
         jit_set_exception_with_id(module_inst, EXCE_OUT_OF_BOUNDS_TABLE_ACCESS);
         return;
@@ -4274,18 +4280,8 @@ llvm_jit_table_init(WASMModuleInstance *module_inst, uint32 tbl_idx,
         return;
     }
 
-    if (bh_bitmap_get_bit(module_inst->e->common.elem_dropped, tbl_seg_idx)) {
-        jit_set_exception_with_id(module_inst, EXCE_OUT_OF_BOUNDS_TABLE_ACCESS);
-        return;
-    }
-
-    if (!wasm_elem_is_passive(tbl_seg->mode)) {
-        jit_set_exception_with_id(module_inst, EXCE_OUT_OF_BOUNDS_TABLE_ACCESS);
-        return;
-    }
-
     table_elems = tbl_inst->elems + dst_offset;
-    init_values = tbl_seg->init_values + src_offset;
+    init_values = tbl_seg_init_values + src_offset;
 
     for (i = 0; i < length; i++) {
 #if WASM_ENABLE_GC != 0
@@ -4411,176 +4407,6 @@ llvm_jit_table_grow(WASMModuleInstance *module_inst, uint32 tbl_idx,
     return orig_size;
 }
 #endif /* end of WASM_ENABLE_REF_TYPES != 0 || WASM_ENABLE_GC != 0 */
-
-#if WASM_ENABLE_DUMP_CALL_STACK != 0 || WASM_ENABLE_PERF_PROFILING != 0 \
-    || WASM_ENABLE_JIT_STACK_FRAME != 0
-bool
-llvm_jit_alloc_frame(WASMExecEnv *exec_env, uint32 func_index)
-{
-    WASMModuleInstance *module_inst;
-    WASMModule *module;
-    WASMInterpFrame *frame;
-    uint32 size, max_local_cell_num, max_stack_cell_num;
-
-    return wasm_create_func_obj(module_inst, func_idx, throw_exce, error_buf,
-                                error_buf_size);
-}
-
-    module_inst = (WASMModuleInstance *)exec_env->module_inst;
-    module = module_inst->module;
-
-    if (func_index >= func_index - module->import_function_count) {
-        WASMFunction *func =
-            module->functions[func_index - module->import_function_count];
-
-        max_local_cell_num = func->param_cell_num + func->local_cell_num;
-        max_stack_cell_num = func->max_stack_cell_num;
-    }
-    else {
-        WASMFunctionImport *func =
-            &((module->import_functions + func_index)->u.function);
-
-        max_local_cell_num = func->func_type->param_cell_num > 2
-                                 ? func->func_type->param_cell_num
-                                 : 2;
-        max_stack_cell_num = 0;
-    }
-
-    size =
-        wasm_interp_interp_frame_size(max_local_cell_num + max_stack_cell_num);
-
-    return wasm_obj_is_instance_of(gc_obj, type_index, types, type_count);
-}
-
-WASMRttTypeRef
-llvm_jit_rtt_type_new(WASMModuleInstance *module_inst, uint32 type_index)
-{
-    WASMModule *module = module_inst->module;
-    WASMType *defined_type = module->types[type_index];
-    WASMRttType **rtt_types = module->rtt_types;
-    uint32 rtt_type_count = module->type_count;
-    korp_mutex *rtt_type_lock = &module->rtt_type_lock;
-
-    return wasm_rtt_type_new(defined_type, type_index, rtt_types,
-                             rtt_type_count, rtt_type_lock);
-}
-
-bool
-llvm_array_init_with_data(WASMModuleInstance *module_inst, uint32 seg_index,
-                          uint32 data_seg_offset, WASMArrayObjectRef array_obj,
-                          uint32 elem_size, uint32 array_len)
-{
-    WASMModule *wasm_module = module_inst->module;
-    WASMDataSeg *data_seg;
-    uint8 *array_elem_base;
-    uint64 total_size;
-
-    data_seg = wasm_module->data_segments[seg_index];
-    total_size = (int64)elem_size * array_len;
-
-    if (data_seg_offset >= data_seg->data_length
-        || total_size > data_seg->data_length - data_seg_offset) {
-        wasm_set_exception(module_inst, "out of bounds memory access");
-        return false;
-    }
-
-    frame->function = module_inst->e->functions + func_index;
-    frame->ip = NULL;
-    frame->sp = frame->lp + max_local_cell_num;
-#if WASM_ENABLE_PERF_PROFILING != 0
-    frame->time_started = os_time_thread_cputime_us();
-#endif
-    frame->prev_frame = wasm_exec_env_get_cur_frame(exec_env);
-
-#if WASM_ENABLE_GC != 0
-    /* Initialize frame ref flags for import function */
-    if (func_index < module->import_function_count) {
-        WASMFunctionImport *func =
-            &((module->import_functions + func_index)->u.function);
-        WASMFuncType *func_type = func->func_type;
-        /* native function doesn't have operand stack and label stack */
-        uint8 *frame_ref = (uint8 *)frame->sp;
-        uint32 i, j, k, value_type_cell_num;
-
-        for (i = 0, j = 0; i < func_type->param_count; i++) {
-            if (wasm_is_type_reftype(func_type->types[i])
-                && !wasm_is_reftype_i31ref(func_type->types[i])) {
-                frame_ref[j++] = 1;
-#if UINTPTR_MAX == UINT64_MAX
-                frame_ref[j++] = 1;
-#endif
-            }
-            else {
-                value_type_cell_num =
-                    wasm_value_type_cell_num(func_type->types[i]);
-                for (k = 0; k < value_type_cell_num; k++)
-                    frame_ref[j++] = 0;
-            }
-        }
-    }
-#endif
-
-    wasm_exec_env_set_cur_frame(exec_env, frame);
-
-    return true;
-}
-
-void
-llvm_jit_free_frame(WASMExecEnv *exec_env)
-{
-    WASMInterpFrame *frame;
-    WASMInterpFrame *prev_frame;
-
-    bh_assert(exec_env->module_inst->module_type == Wasm_Module_Bytecode);
-
-    frame = wasm_exec_env_get_cur_frame(exec_env);
-    prev_frame = frame->prev_frame;
-
-#if WASM_ENABLE_PERF_PROFILING != 0
-    if (frame->function) {
-        uint64 elapsed = os_time_thread_cputime_us() - frame->time_started;
-        frame->function->total_exec_time += elapsed;
-        frame->function->total_exec_cnt++;
-
-        /* parent function */
-        if (prev_frame)
-            prev_frame->function->children_exec_time += elapsed;
-    }
-#endif
-    wasm_exec_env_free_wasm_frame(exec_env, frame);
-    wasm_exec_env_set_cur_frame(exec_env, prev_frame);
-}
-
-void
-llvm_jit_frame_update_profile_info(WASMExecEnv *exec_env, bool alloc_frame)
-{
-#if WASM_ENABLE_PERF_PROFILING != 0
-    WASMInterpFrame *cur_frame = exec_env->cur_frame;
-
-    if (alloc_frame) {
-        cur_frame->time_started = (uintptr_t)os_time_get_boot_microsecond();
-    }
-    else {
-        if (cur_frame->function) {
-            cur_frame->function->total_exec_time +=
-                os_time_get_boot_microsecond() - cur_frame->time_started;
-            cur_frame->function->total_exec_cnt++;
-        }
-    }
-#endif
-
-#if WASM_ENABLE_MEMORY_PROFILING != 0
-    if (alloc_frame) {
-        uint32 wasm_stack_used =
-            exec_env->wasm_stack.top - exec_env->wasm_stack.bottom;
-        if (wasm_stack_used > exec_env->max_wasm_stack_used)
-            exec_env->max_wasm_stack_used = wasm_stack_used;
-    }
-#endif
-}
-#endif /* end of WASM_ENABLE_DUMP_CALL_STACK != 0 \
-          || WASM_ENABLE_PERF_PROFILING != 0      \
-          || WASM_ENABLE_JIT_STACK_FRAME != 0 */
 
 #if WASM_ENABLE_GC != 0
 void *

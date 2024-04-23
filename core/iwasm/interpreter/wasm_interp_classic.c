@@ -443,6 +443,8 @@ wasm_interp_get_frame_ref(WASMInterpFrame *frame)
 #define CLEAR_FRAME_REF(p, n) (void)0
 #endif /* end of WASM_ENABLE_GC != 0 */
 
+#define skip_leb(p) while (*p++ & 0x80)
+
 #define PUSH_I32(value)                        \
     do {                                       \
         *(int32 *)frame_sp++ = (int32)(value); \
@@ -492,6 +494,32 @@ wasm_interp_get_frame_ref(WASMInterpFrame *frame)
         frame_sp++;                       \
     } while (0)
 #endif
+
+/* in exception handling, label_type needs to be stored to lookup exception
+ * handlers */
+
+#if WASM_ENABLE_EXCE_HANDLING != 0
+#define SET_LABEL_TYPE(_label_type) frame_csp->label_type = _label_type
+#else
+#define SET_LABEL_TYPE(_label_type) (void)0
+#endif
+
+#if WASM_ENABLE_MEMORY64 != 0
+#define PUSH_MEM_OFFSET(value)                     \
+    do {                                           \
+        if (is_memory64) {                         \
+            PUT_I64_TO_ADDR(frame_sp, value);      \
+            frame_sp += 2;                         \
+        }                                          \
+        else {                                     \
+            *(int32 *)frame_sp++ = (int32)(value); \
+        }                                          \
+    } while (0)
+#else
+#define PUSH_MEM_OFFSET(value) PUSH_I32(value)
+#endif
+
+#define PUSH_PAGE_COUNT(value) PUSH_MEM_OFFSET(value)
 
 #define PUSH_CSP(_label_type, param_cell_num, cell_num, _target_addr) \
     do {                                                              \
@@ -2539,6 +2567,8 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                 uint32 opcode1;
 
                 read_leb_uint32(frame_ip, frame_ip_end, opcode1);
+                /* opcode1 was checked in loader and is no larger than
+                   UINT8_MAX */
                 opcode = (uint8)opcode1;
 
                 switch (opcode) {
@@ -5633,7 +5663,9 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                         uint32 n, s, d;
                         WASMTableInstance *tbl_inst;
                         table_elem_type_t *table_elems;
-                        InitializerExpression *init_values;
+                        InitializerExpression *tbl_seg_init_values = NULL,
+                                              *init_values;
+                        uint32 tbl_seg_len = 0;
 
                         read_leb_uint32(frame_ip, frame_ip_end, elem_idx);
                         bh_assert(elem_idx < module->module->table_seg_count);
@@ -5652,7 +5684,13 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                             /* table segment isn't dropped */
                             tbl_seg_init_values =
                                 module->module->table_segments[elem_idx]
-                                    .value_count)
+                                    .init_values;
+                            tbl_seg_len =
+                                module->module->table_segments[elem_idx]
+                                    .value_count;
+                        }
+
+                        if (offset_len_out_of_bounds(s, n, tbl_seg_len)
                             || offset_len_out_of_bounds(d, n,
                                                         tbl_inst->cur_size)) {
                             wasm_set_exception(module,
@@ -5664,30 +5702,13 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                             break;
                         }
 
-                        if (bh_bitmap_get_bit(module->e->common.elem_dropped,
-                                              elem_idx)) {
-                            wasm_set_exception(module,
-                                               "out of bounds table access");
-                            goto got_exception;
-                        }
-
-                        if (!wasm_elem_is_passive(
-                                module->module->table_segments[elem_idx]
-                                    .mode)) {
-                            wasm_set_exception(module,
-                                               "out of bounds table access");
-                            goto got_exception;
-                        }
-
                         table_elems = tbl_inst->elems + d;
-                        init_values =
-                            module->module->table_segments[elem_idx].init_values
-                            + s;
+                        init_values = tbl_seg_init_values + s;
 #if WASM_ENABLE_GC != 0
                         SYNC_ALL_TO_FRAME();
 #endif
                         for (i = 0; i < n; i++) {
-                            /* UINT32_MAX indicates that it is an null ref */
+                            /* UINT32_MAX indicates that it is a null ref */
                             bh_assert(init_values[i].init_expr_type
                                           == INIT_EXPR_TYPE_REFNULL_CONST
                                       || init_values[i].init_expr_type
@@ -6260,6 +6281,21 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
         HANDLE_OP(WASM_OP_BR_ON_NON_NULL)
         HANDLE_OP(WASM_OP_GC_PREFIX)
 #endif
+#if WASM_ENABLE_EXCE_HANDLING == 0
+        HANDLE_OP(WASM_OP_TRY)
+        HANDLE_OP(WASM_OP_CATCH)
+        HANDLE_OP(WASM_OP_THROW)
+        HANDLE_OP(WASM_OP_RETHROW)
+        HANDLE_OP(WASM_OP_DELEGATE)
+        HANDLE_OP(WASM_OP_CATCH_ALL)
+        HANDLE_OP(EXT_OP_TRY)
+#endif
+#if WASM_ENABLE_JIT != 0 && WASM_ENABLE_SIMD != 0
+        /* SIMD isn't supported by interpreter, but when JIT is
+           enabled, `iwasm --interp <wasm_file>` may be run to
+           trigger the SIMD opcode in interpreter */
+        HANDLE_OP(WASM_OP_SIMD_PREFIX)
+#endif
         HANDLE_OP(WASM_OP_UNUSED_0x16)
         HANDLE_OP(WASM_OP_UNUSED_0x17)
         HANDLE_OP(WASM_OP_UNUSED_0x27)
@@ -6436,7 +6472,8 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
         }
         else {
             WASMFunction *cur_wasm_func = cur_func->u.func;
-            WASMFuncType *func_type;
+            WASMFuncType *func_type = cur_wasm_func->func_type;
+            uint32 max_stack_cell_num = cur_wasm_func->max_stack_cell_num;
             uint32 cell_num_of_local_stack;
 
 #if WASM_ENABLE_EXCE_HANDLING != 0
@@ -6446,11 +6483,9 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
             max_stack_cell_num += eh_size;
 #endif
 
-            func_type = cur_wasm_func->func_type;
-
             cell_num_of_local_stack = cur_func->param_cell_num
                                       + cur_func->local_cell_num
-                                      + cur_wasm_func->max_stack_cell_num;
+                                      + max_stack_cell_num;
             all_cell_num = cell_num_of_local_stack
                            + cur_wasm_func->max_block_num
                                  * (uint32)sizeof(WASMBranchBlock) / 4;
@@ -6458,6 +6493,7 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
             /* area of frame_ref */
             all_cell_num += (cell_num_of_local_stack + 3) / 4;
 #endif
+
             /* param_cell_num, local_cell_num, max_stack_cell_num and
                max_block_num are all no larger than UINT16_MAX (checked
                in loader), all_cell_num must be smaller than 1MB */
@@ -6929,7 +6965,7 @@ llvm_jit_call_func_bytecode(WASMModuleInstance *module_inst,
     bool ret = false;
 
 #if (WASM_ENABLE_DUMP_CALL_STACK != 0) || (WASM_ENABLE_PERF_PROFILING != 0) \
-    || (WASM_ENABLE_JIT_STACK_FRAME != 0)
+    || (WASM_ENABLE_AOT_STACK_FRAME != 0)
     if (!llvm_jit_alloc_frame(exec_env, function - module_inst->e->functions)) {
         /* wasm operand stack overflow has been thrown,
            no need to throw again */
@@ -7014,7 +7050,6 @@ llvm_jit_call_func_bytecode(WASMModuleInstance *module_inst,
 
         if (argv1 != argv1_buf)
             wasm_runtime_free(argv1);
-
         ret = true;
     }
     else {
@@ -7043,8 +7078,8 @@ llvm_jit_call_func_bytecode(WASMModuleInstance *module_inst,
 fail:
 
 #if (WASM_ENABLE_DUMP_CALL_STACK != 0) || (WASM_ENABLE_PERF_PROFILING != 0) \
-    || (WASM_ENABLE_JIT_STACK_FRAME != 0)
-    llvm_jit_free_frame(exec_env);
+    || (WASM_ENABLE_AOT_STACK_FRAME != 0)
+    llvm_jit_free_frame_internal(exec_env);
 #endif
 
     return ret;
@@ -7083,19 +7118,24 @@ wasm_interp_call_wasm(WASMModuleInstance *module_inst, WASMExecEnv *exec_env,
     }
 #endif
 
-    if (!(frame = ALLOC_FRAME(exec_env, frame_size, prev_frame)))
-        return;
-
-    outs_area = wasm_exec_env_wasm_stack_top(exec_env);
-    frame->function = NULL;
-    frame->ip = NULL;
-    /* There is no local variable. */
-    frame->sp = frame->lp + 0;
-
-    if ((uint8 *)(outs_area->lp + function->param_cell_num)
-        > exec_env->wasm_stack.top_boundary) {
-        wasm_set_exception(module_inst, "wasm operand stack overflow");
-        return;
+    if (!function->is_import_func) {
+        /* No need to alloc frame when calling LLVM JIT function */
+#if WASM_ENABLE_JIT != 0
+        if (running_mode == Mode_LLVM_JIT) {
+            alloc_frame = false;
+        }
+#if WASM_ENABLE_LAZY_JIT != 0 && WASM_ENABLE_FAST_JIT != 0
+        else if (running_mode == Mode_Multi_Tier_JIT) {
+            /* Tier-up from Fast JIT to LLVM JIT, call llvm jit function
+               if it is compiled, else call fast jit function */
+            uint32 func_idx = (uint32)(function - module_inst->e->functions);
+            if (module_inst->module->func_ptrs_compiled
+                    [func_idx - module_inst->module->import_function_count]) {
+                alloc_frame = false;
+            }
+        }
+#endif
+#endif
     }
 
     if (alloc_frame) {

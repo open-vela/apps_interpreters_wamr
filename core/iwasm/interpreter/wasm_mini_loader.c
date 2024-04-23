@@ -2183,7 +2183,7 @@ init_llvm_jit_functions_stage1(WASMModule *module, char *error_buf,
 #endif
     option.enable_aux_stack_check = true;
 #if WASM_ENABLE_PERF_PROFILING != 0 || WASM_ENABLE_DUMP_CALL_STACK != 0 \
-    || WASM_ENABLE_JIT_STACK_FRAME != 0
+    || WASM_ENABLE_AOT_STACK_FRAME != 0
     option.enable_aux_stack_frame = true;
 #endif
 #if WASM_ENABLE_PERF_PROFILING != 0
@@ -6064,7 +6064,25 @@ re_scan:
                 /* Pop block parameters from stack */
                 if (BLOCK_HAS_PARAM(block_type)) {
                     WASMFuncType *wasm_type = block_type.u.type;
-                    for (i = 0; i < block_type.u.type->param_count; i++)
+
+                    BranchBlock *cur_block = loader_ctx->frame_csp - 1;
+#if WASM_ENABLE_FAST_INTERP != 0
+                    uint32 cell_num;
+                    available_params = block_type.u.type->param_count;
+#endif
+                    for (i = 0; i < block_type.u.type->param_count; i++) {
+
+                        int32 available_stack_cell =
+                            (int32)(loader_ctx->stack_cell_num
+                                    - cur_block->stack_cell_num);
+                        if (available_stack_cell <= 0
+                            && cur_block->is_stack_polymorphic) {
+#if WASM_ENABLE_FAST_INTERP != 0
+                            available_params = i;
+#endif
+                            break;
+                        }
+
                         POP_TYPE(
                             wasm_type->types[wasm_type->param_count - i - 1]);
 #if WASM_ENABLE_FAST_INTERP != 0
@@ -6921,17 +6939,29 @@ re_scan:
                     bool func_declared = false;
                     uint32 j;
 
-                    /* Check whether the function is declared in table segs,
-                       note that it doesn't matter whether the table seg's mode
-                       is passive, active or declarative. */
-                    for (i = 0; i < module->table_seg_count; i++, table_seg++) {
-                        if (table_seg->elem_type == VALUE_TYPE_FUNCREF
-                            && wasm_elem_is_declarative(table_seg->mode)) {
-                            for (j = 0; j < table_seg->value_count; j++) {
-                                if (table_seg->init_values[j].u.ref_index
-                                    == func_idx) {
-                                    func_declared = true;
-                                    break;
+                    for (i = 0; i < module->global_count; i++) {
+                        if (module->globals[i].type == VALUE_TYPE_FUNCREF
+                            && module->globals[i].init_expr.init_expr_type
+                                   == INIT_EXPR_TYPE_FUNCREF_CONST
+                            && module->globals[i].init_expr.u.u32 == func_idx) {
+                            func_declared = true;
+                            break;
+                        }
+                    }
+
+                    if (!func_declared) {
+                        /* Check whether the function is declared in table segs,
+                           note that it doesn't matter whether the table seg's
+                           mode is passive, active or declarative. */
+                        for (i = 0; i < module->table_seg_count;
+                             i++, table_seg++) {
+                            if (table_seg->elem_type == VALUE_TYPE_FUNCREF) {
+                                for (j = 0; j < table_seg->value_count; j++) {
+                                    if (table_seg->init_values[j].u.ref_index
+                                        == func_idx) {
+                                        func_declared = true;
+                                        break;
+                                    }
                                 }
                             }
                         }

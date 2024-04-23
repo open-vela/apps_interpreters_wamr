@@ -630,8 +630,8 @@ load_init_expr(WASMModule *module, const uint8 **p_buf, const uint8 *buf_end,
     ConstExprContext const_expr_ctx = { 0 };
     WASMValue cur_value;
 #if WASM_ENABLE_GC != 0
-    uint8 opcode1;
-    uint32 type_idx;
+    uint32 opcode1, type_idx;
+    uint8 opcode;
     WASMRefType cur_ref_type = { 0 };
 #endif
 
@@ -704,8 +704,7 @@ load_init_expr(WASMModule *module, const uint8 **p_buf, const uint8 *buf_end,
                 uint64 high, low;
 
                 CHECK_BUF(p, p_end, 1);
-                flag = read_uint8(p);
-                (void)flag;
+                (void)read_uint8(p);
 
                 CHECK_BUF(p, p_end, 16);
                 wasm_runtime_read_v128(p, &high, &low);
@@ -721,6 +720,10 @@ load_init_expr(WASMModule *module, const uint8 **p_buf, const uint8 *buf_end,
 #endif
                         &cur_value, error_buf, error_buf_size))
                     goto fail;
+#if WASM_ENABLE_WAMR_COMPILER != 0
+                /* If any init_expr is v128.const, mark SIMD used */
+                module->is_simd_used = true;
+#endif
                 break;
             }
 #endif /* end of (WASM_ENABLE_WAMR_COMPILER != 0) || (WASM_ENABLE_JIT != 0) */
@@ -761,6 +764,9 @@ load_init_expr(WASMModule *module, const uint8 **p_buf, const uint8 *buf_end,
                                            0, &cur_value, error_buf,
                                            error_buf_size))
                     goto fail;
+#endif
+#if WASM_ENABLE_WAMR_COMPILER != 0
+                module->is_ref_types_used = true;
 #endif
                 break;
             }
@@ -803,6 +809,9 @@ load_init_expr(WASMModule *module, const uint8 **p_buf, const uint8 *buf_end,
                                                error_buf_size))
                         goto fail;
                 }
+#endif
+#if WASM_ENABLE_WAMR_COMPILER != 0
+                module->is_ref_types_used = true;
 #endif
                 break;
             }
@@ -899,8 +908,7 @@ load_init_expr(WASMModule *module, const uint8 **p_buf, const uint8 *buf_end,
             /* struct.new and array.new */
             case WASM_OP_GC_PREFIX:
             {
-                CHECK_BUF(p, p_end, 1);
-                opcode1 = read_uint8(p);
+                read_leb_uint32(p, p_end, opcode1);
 
                 switch (opcode1) {
                     case WASM_OP_STRUCT_NEW:
@@ -963,8 +971,8 @@ load_init_expr(WASMModule *module, const uint8 **p_buf, const uint8 *buf_end,
                             &cur_ref_type.ref_ht_typeidx, false, type_idx);
                         if (!push_const_expr_stack(
                                 &const_expr_ctx, flag, cur_ref_type.ref_type,
-                                &cur_ref_type, opcode1, &cur_value, error_buf,
-                                error_buf_size)) {
+                                &cur_ref_type, (uint8)opcode1, &cur_value,
+                                error_buf, error_buf_size)) {
                             wasm_runtime_free(struct_init_values);
                             goto fail;
                         }
@@ -992,8 +1000,8 @@ load_init_expr(WASMModule *module, const uint8 **p_buf, const uint8 *buf_end,
                             &cur_ref_type.ref_ht_typeidx, false, type_idx);
                         if (!push_const_expr_stack(
                                 &const_expr_ctx, flag, cur_ref_type.ref_type,
-                                &cur_ref_type, opcode1, &cur_value, error_buf,
-                                error_buf_size)) {
+                                &cur_ref_type, (uint8)opcode1, &cur_value,
+                                error_buf, error_buf_size)) {
                             goto fail;
                         }
                         break;
@@ -1113,15 +1121,15 @@ load_init_expr(WASMModule *module, const uint8 **p_buf, const uint8 *buf_end,
                             len = len_val.i32;
 
                             cur_value.array_new_default.type_index = type_idx;
-                            cur_value.array_new_default.N = len;
+                            cur_value.array_new_default.length = len;
                         }
 
                         wasm_set_refheaptype_typeidx(
                             &cur_ref_type.ref_ht_typeidx, false, type_idx);
                         if (!push_const_expr_stack(
                                 &const_expr_ctx, flag, cur_ref_type.ref_type,
-                                &cur_ref_type, opcode1, &cur_value, error_buf,
-                                error_buf_size)) {
+                                &cur_ref_type, (uint8)opcode1, &cur_value,
+                                error_buf, error_buf_size)) {
                             if (array_init_values) {
                                 wasm_runtime_free(array_init_values);
                             }
@@ -1156,8 +1164,8 @@ load_init_expr(WASMModule *module, const uint8 **p_buf, const uint8 *buf_end,
                                                     false, HEAP_TYPE_I31);
                         if (!push_const_expr_stack(
                                 &const_expr_ctx, flag, cur_ref_type.ref_type,
-                                &cur_ref_type, opcode1, &cur_value, error_buf,
-                                error_buf_size)) {
+                                &cur_ref_type, (uint8)opcode1, &cur_value,
+                                error_buf, error_buf_size)) {
                             goto fail;
                         }
                         break;
@@ -1189,7 +1197,7 @@ load_init_expr(WASMModule *module, const uint8 **p_buf, const uint8 *buf_end,
     /* There should be only one value left on the init value stack */
     if (!pop_const_expr_stack(&const_expr_ctx, &flag, type,
 #if WASM_ENABLE_GC != 0
-                              ref_type, &opcode1,
+                              ref_type, &opcode,
 #endif
                               &cur_value, error_buf, error_buf_size)) {
         goto fail;
@@ -1206,7 +1214,7 @@ load_init_expr(WASMModule *module, const uint8 **p_buf, const uint8 *buf_end,
 
 #if WASM_ENABLE_GC != 0
     if (init_expr->init_expr_type == WASM_OP_GC_PREFIX) {
-        switch (opcode1) {
+        switch (opcode) {
             case WASM_OP_STRUCT_NEW:
                 init_expr->init_expr_type = INIT_EXPR_TYPE_STRUCT_NEW;
                 break;
@@ -1394,6 +1402,11 @@ resolve_value_type(const uint8 **p_buf, const uint8 *buf_end,
         }
         ref_type->ref_type = type;
         *p_need_ref_type_map = false;
+#if WASM_ENABLE_WAMR_COMPILER != 0
+        /* If any value's type is v128, mark the module as SIMD used */
+        if (type == VALUE_TYPE_V128)
+            module->is_simd_used = true;
+#endif
     }
 
     *p_buf = p;
@@ -1537,17 +1550,16 @@ resolve_func_type(const uint8 **p_buf, const uint8 *buf_end, WASMModule *module,
     type->param_cell_num = (uint16)param_cell_num;
     type->ret_cell_num = (uint16)ret_cell_num;
 
-    /* Calculate the minimal type index of the type equal to this type */
-    type->min_type_idx_normalized = type_idx;
-    for (i = 0; i < type_idx; i++) {
-        WASMFuncType *func_type = (WASMFuncType *)module->types[i];
-        if (func_type->base_type.type_flag == WASM_TYPE_FUNC
-            && wasm_func_type_equal(type, func_type, module->types,
-                                    type_idx + 1)) {
-            type->min_type_idx_normalized = i;
-            break;
-        }
+#if WASM_ENABLE_QUICK_AOT_ENTRY != 0
+    type->quick_aot_entry = wasm_native_lookup_quick_aot_entry(type);
+#endif
+
+#if WASM_ENABLE_WAMR_COMPILER != 0
+    for (i = 0; i < (uint32)(type->param_count + type->result_count); i++) {
+        if (type->types[i] == VALUE_TYPE_V128)
+            module->is_simd_used = true;
     }
+#endif
 
     *p_buf = p;
 
@@ -3303,7 +3315,6 @@ load_import_section(const uint8 *buf, const uint8 *buf_end, WASMModule *module,
                         read_leb_uint32(p, p_end, u32);
                     module->import_table_count++;
 
-#if WASM_ENABLE_REF_TYPES == 0 && WASM_ENABLE_GC == 0
                     if (module->import_table_count > 1) {
 #if WASM_ENABLE_REF_TYPES == 0 && WASM_ENABLE_GC == 0
                         set_error_buf(error_buf, error_buf_size,
@@ -3639,6 +3650,11 @@ load_function_section(const uint8 *buf, const uint8 *buf_end,
                 /* 0x7F/0x7E/0x7D/0x7C */
                 type = read_uint8(p_code);
                 local_count += sub_local_count;
+#if WASM_ENABLE_WAMR_COMPILER != 0
+                /* If any value's type is v128, mark the module as SIMD used */
+                if (type == VALUE_TYPE_V128)
+                    module->is_simd_used = true;
+#endif
 #else
                 if (!resolve_value_type(&p_code, buf_code_end, module,
                                         module->type_count, &need_ref_type_map,
@@ -3824,7 +3840,6 @@ load_table_section(const uint8 *buf, const uint8 *buf_end, WASMModule *module,
     WASMTable *table;
 
     read_leb_uint32(p, p_end, table_count);
-#if WASM_ENABLE_REF_TYPES == 0 && WASM_ENABLE_GC == 0
     if (module->import_table_count + table_count > 1) {
 #if WASM_ENABLE_REF_TYPES == 0 && WASM_ENABLE_GC == 0
         /* a total of one table is allowed */
@@ -3897,6 +3912,11 @@ load_table_section(const uint8 *buf, const uint8 *buf_end, WASMModule *module,
                 }
             }
 #endif /* end of WASM_ENABLE_GC != 0 */
+
+#if WASM_ENABLE_WAMR_COMPILER != 0
+            if (table->elem_type == VALUE_TYPE_EXTERNREF)
+                module->is_ref_types_used = true;
+#endif
         }
     }
 
@@ -3994,6 +4014,14 @@ load_global_section(const uint8 *buf, const uint8 *buf_end, WASMModule *module,
             CHECK_BUF(p, p_end, 1);
             mutable = read_uint8(p);
 #endif /* end of WASM_ENABLE_GC */
+
+#if WASM_ENABLE_WAMR_COMPILER != 0
+            if (global->type == VALUE_TYPE_V128)
+                module->is_simd_used = true;
+            else if (global->type == VALUE_TYPE_FUNCREF
+                     || global->type == VALUE_TYPE_EXTERNREF)
+                module->is_ref_types_used = true;
+#endif
 
             if (!check_mutability(mutable, error_buf, error_buf_size)) {
                 return false;
@@ -4435,16 +4463,22 @@ load_table_segment_section(const uint8 *buf, const uint8 *buf_end,
                 case 4:
                 {
 #if WASM_ENABLE_GC != 0
-                    WASMRefType elem_ref_type = { 0 };
-                    /* TODO: for mode 4, we may need to decide elem_type
-                     * according to init expr result */
-                    table_segment->elem_type = REF_TYPE_HT_NON_NULLABLE;
-                    wasm_set_refheaptype_common(&elem_ref_type.ref_ht_common,
-                                                false, HEAP_TYPE_FUNC);
-                    if (!(table_segment->elem_ref_type = reftype_set_insert(
-                              module->ref_type_set, &elem_ref_type, error_buf,
-                              error_buf_size)))
-                        return false;
+                    if (table_segment->mode == 0) {
+                        /* vec(funcidx), set elem type to (ref func) */
+                        WASMRefType elem_ref_type = { 0 };
+                        table_segment->elem_type = REF_TYPE_HT_NON_NULLABLE;
+                        wasm_set_refheaptype_common(
+                            &elem_ref_type.ref_ht_common, false,
+                            HEAP_TYPE_FUNC);
+                        if (!(table_segment->elem_ref_type = reftype_set_insert(
+                                  module->ref_type_set, &elem_ref_type,
+                                  error_buf, error_buf_size)))
+                            return false;
+                    }
+                    else {
+                        /* vec(expr), set elem type to funcref */
+                        table_segment->elem_type = VALUE_TYPE_FUNCREF;
+                    }
 #else
                     table_segment->elem_type = VALUE_TYPE_FUNCREF;
 #endif
@@ -4901,7 +4935,6 @@ fail:
     return false;
 }
 
-#if WASM_ENABLE_GC != 0
 #if WASM_ENABLE_STRINGREF != 0
 static bool
 load_stringref_section(const uint8 *buf, const uint8 *buf_end,
@@ -4956,7 +4989,6 @@ fail:
     return false;
 }
 #endif /* end of WASM_ENABLE_STRINGREF != 0 */
-#endif /* end of WASM_ENABLE_GC != 0 */
 
 #if WASM_ENABLE_CUSTOM_NAME_SECTION != 0
 static bool
@@ -5275,7 +5307,7 @@ init_llvm_jit_functions_stage1(WASMModule *module, char *error_buf,
 #endif
     option.enable_aux_stack_check = true;
 #if WASM_ENABLE_PERF_PROFILING != 0 || WASM_ENABLE_DUMP_CALL_STACK != 0 \
-    || WASM_ENABLE_JIT_STACK_FRAME != 0
+    || WASM_ENABLE_AOT_STACK_FRAME != 0
     option.enable_aux_stack_frame = true;
 #endif
 #if WASM_ENABLE_PERF_PROFILING != 0
@@ -5745,7 +5777,6 @@ load_from_sections(WASMModule *module, WASMSection *sections,
                     return false;
                 break;
 #endif
-#if WASM_ENABLE_GC != 0
 #if WASM_ENABLE_STRINGREF != 0
             case SECTION_TYPE_STRINGREF:
                 if (!load_stringref_section(buf, buf_end, module,
@@ -5753,7 +5784,6 @@ load_from_sections(WASMModule *module, WASMSection *sections,
                                             error_buf_size))
                     return false;
                 break;
-#endif
 #endif
             default:
                 set_error_buf(error_buf, error_buf_size, "invalid section id");
@@ -6228,10 +6258,8 @@ static uint8 section_ids[] = {
     SECTION_TYPE_FUNC,
     SECTION_TYPE_TABLE,
     SECTION_TYPE_MEMORY,
-#if WASM_ENABLE_GC != 0
-#if WASM_ENABLE_STRINGREF != 0
-    SECTION_TYPE_STRINGREF,
-#endif
+#if WASM_ENABLE_TAGS != 0
+    SECTION_TYPE_TAG,
 #endif
 #if WASM_ENABLE_STRINGREF != 0
     /* must immediately precede the global section,
@@ -6436,9 +6464,15 @@ check_wasi_abi_compatibility(const WASMModule *module,
     start = wasm_loader_find_export(module, "", "_start", EXPORT_KIND_FUNC,
                                     error_buf, error_buf_size);
     if (start) {
-        WASMFuncType *func_type =
-            module->functions[start->index - module->import_function_count]
-                ->func_type;
+        if (start->index < import_function_count) {
+            set_error_buf(
+                error_buf, error_buf_size,
+                "the builtin _start function can not be an import function");
+            return false;
+        }
+
+        func_type =
+            module->functions[start->index - import_function_count]->func_type;
         if (func_type->param_count || func_type->result_count) {
             set_error_buf(error_buf, error_buf_size,
                           "the signature of builtin _start function is wrong");
@@ -6452,10 +6486,15 @@ check_wasi_abi_compatibility(const WASMModule *module,
                                     error_buf, error_buf_size);
 
         if (initialize) {
-            WASMFuncType *func_type =
-                module
-                    ->functions[initialize->index
-                                - module->import_function_count]
+            if (initialize->index < import_function_count) {
+                set_error_buf(error_buf, error_buf_size,
+                              "the builtin _initialize function can not be an "
+                              "import function");
+                return false;
+            }
+
+            func_type =
+                module->functions[initialize->index - import_function_count]
                     ->func_type;
             if (func_type->param_count || func_type->result_count) {
                 set_error_buf(
@@ -6668,6 +6707,16 @@ wasm_loader_unload(WASMModule *module)
         wasm_runtime_free(module->globals);
     }
 
+#if WASM_ENABLE_TAGS != 0
+    if (module->tags) {
+        for (i = 0; i < module->tag_count; i++) {
+            if (module->tags[i])
+                wasm_runtime_free(module->tags[i]);
+        }
+        wasm_runtime_free(module->tags);
+    }
+#endif
+
     if (module->exports)
         wasm_runtime_free(module->exports);
 
@@ -6704,7 +6753,6 @@ wasm_loader_unload(WASMModule *module)
         }
     }
 
-#if WASM_ENABLE_GC != 0
 #if WASM_ENABLE_STRINGREF != 0
     if (module->string_literal_ptrs) {
         wasm_runtime_free((void *)module->string_literal_ptrs);
@@ -6712,7 +6760,6 @@ wasm_loader_unload(WASMModule *module)
     if (module->string_literal_lengths) {
         wasm_runtime_free(module->string_literal_lengths);
     }
-#endif
 #endif
 
 #if WASM_ENABLE_FAST_INTERP == 0
@@ -7300,8 +7347,11 @@ wasm_loader_find_block_addr(WASMExecEnv *exec_env, BlockAddr *block_addr_cache,
                 uint32 opcode1;
 
                 read_leb_uint32(p, p_end, opcode1);
+                /* opcode1 was checked in wasm_loader_prepare_bytecode and
+                   is no larger than UINT8_MAX */
+                opcode = (uint8)opcode1;
 
-                switch (opcode1) {
+                switch (opcode) {
                     case WASM_OP_STRUCT_NEW:
                     case WASM_OP_STRUCT_NEW_DEFAULT:
                         skip_leb_uint32(p, p_end); /* typeidx */
@@ -10845,6 +10895,13 @@ re_scan:
                      * the single return value. */
                     block_type.is_value_type = true;
                     block_type.u.value_type.type = value_type;
+#if WASM_ENABLE_WAMR_COMPILER != 0
+                    if (value_type == VALUE_TYPE_V128)
+                        module->is_simd_used = true;
+                    else if (value_type == VALUE_TYPE_FUNCREF
+                             || value_type == VALUE_TYPE_EXTERNREF)
+                        module->is_ref_types_used = true;
+#endif
 #if WASM_ENABLE_GC != 0
                     if (value_type != VALUE_TYPE_VOID) {
                         p_org = p;
@@ -10920,10 +10977,36 @@ re_scan:
 
                 /* Pop block parameters from stack */
                 if (BLOCK_HAS_PARAM(block_type)) {
-                    WASMFuncType *func_type = block_type.u.type;
-                    for (i = 0; i < block_type.u.type->param_count; i++)
+                    WASMFuncType *wasm_type = block_type.u.type;
+
+                    BranchBlock *cur_block = loader_ctx->frame_csp - 1;
+#if WASM_ENABLE_FAST_INTERP != 0
+                    uint32 cell_num;
+                    available_params = block_type.u.type->param_count;
+#endif
+                    for (i = 0; i < block_type.u.type->param_count; i++) {
+
+                        int32 available_stack_cell =
+                            (int32)(loader_ctx->stack_cell_num
+                                    - cur_block->stack_cell_num);
+                        if (available_stack_cell <= 0
+                            && cur_block->is_stack_polymorphic) {
+#if WASM_ENABLE_FAST_INTERP != 0
+                            available_params = i;
+#endif
+                            break;
+                        }
+
                         POP_TYPE(
-                            func_type->types[func_type->param_count - i - 1]);
+                            wasm_type->types[wasm_type->param_count - i - 1]);
+#if WASM_ENABLE_FAST_INTERP != 0
+                        /* decrease the frame_offset pointer accordingly to keep
+                         * consistent with frame_ref stack */
+                        cell_num = wasm_value_type_cell_num(
+                            wasm_type->types[wasm_type->param_count - i - 1]);
+                        loader_ctx->frame_offset -= cell_num;
+#endif
+                    }
                 }
                 PUSH_CSP(LABEL_TYPE_BLOCK + (opcode - WASM_OP_BLOCK),
                          block_type, p);
@@ -11268,13 +11351,8 @@ re_scan:
                                        error_buf_size))
                     goto fail;
 
-                (loader_ctx->frame_csp - 1)->else_addr = p - 1;
-#if WASM_ENABLE_GC != 0
-                if (!wasm_loader_init_local_use_masks(
-                        loader_ctx, local_count, error_buf, error_buf_size)) {
-                    goto fail;
-                }
-#endif
+                block->else_addr = p - 1;
+                block_type = block->block_type;
 
 #if WASM_ENABLE_GC != 0
                 if (!wasm_loader_init_local_use_masks(
@@ -11680,7 +11758,6 @@ re_scan:
                             j--;
                         }
 #endif
-                        POP_TYPE(func_type->types[idx]);
 #if WASM_ENABLE_FAST_INTERP != 0
                         POP_OFFSET_TYPE(func_type->types[idx]);
 #endif
@@ -12166,22 +12243,6 @@ re_scan:
 #endif
                 PUSH_REF(type);
 
-#if WASM_ENABLE_GC != 0
-                if (need_ref_type_map) {
-                    bh_memcpy_s(&wasm_ref_type, sizeof(WASMRefType), ref_type,
-                                wasm_reftype_struct_size(ref_type));
-                }
-#endif
-                POP_REF(type);
-
-#if WASM_ENABLE_GC != 0
-                if (need_ref_type_map) {
-                    bh_memcpy_s(&wasm_ref_type, sizeof(WASMRefType), ref_type,
-                                wasm_reftype_struct_size(ref_type));
-                }
-#endif
-                PUSH_REF(type);
-
 #if WASM_ENABLE_WAMR_COMPILER != 0
                 module->is_ref_types_used = true;
 #endif
@@ -12236,6 +12297,9 @@ re_scan:
                     POP_I32();
                 }
 
+#if WASM_ENABLE_WAMR_COMPILER != 0
+                module->is_ref_types_used = true;
+#endif
                 break;
             }
             case WASM_OP_REF_NULL:
@@ -12355,17 +12419,44 @@ re_scan:
                     bool func_declared = false;
                     uint32 j;
 
-                    /* Check whether the function is declared in table segs,
-                       note that it doesn't matter whether the table seg's mode
-                       is passive, active or declarative. */
-                    for (i = 0; i < module->table_seg_count; i++, table_seg++) {
-                        if (table_seg->elem_type == VALUE_TYPE_FUNCREF
-                            && wasm_elem_is_declarative(table_seg->mode)) {
-                            for (j = 0; j < table_seg->value_count; j++) {
-                                if (table_seg->init_values[j].u.ref_index
-                                    == func_idx) {
-                                    func_declared = true;
-                                    break;
+                    for (i = 0; i < module->global_count; i++) {
+                        if (module->globals[i].type == VALUE_TYPE_FUNCREF
+                            && module->globals[i].init_expr.init_expr_type
+                                   == INIT_EXPR_TYPE_FUNCREF_CONST
+                            && module->globals[i].init_expr.u.u32 == func_idx) {
+                            func_declared = true;
+                            break;
+                        }
+                    }
+
+                    if (!func_declared) {
+                        /* Check whether the function is declared in table segs,
+                           note that it doesn't matter whether the table seg's
+                           mode is passive, active or declarative. */
+                        for (i = 0; i < module->table_seg_count;
+                             i++, table_seg++) {
+                            if (table_seg->elem_type == VALUE_TYPE_FUNCREF
+#if WASM_ENABLE_GC != 0
+                                /* elem type is (ref null? func) or
+                                   (ref null? $t) */
+                                || ((table_seg->elem_type
+                                         == REF_TYPE_HT_NON_NULLABLE
+                                     || table_seg->elem_type
+                                            == REF_TYPE_HT_NULLABLE)
+                                    && (table_seg->elem_ref_type->ref_ht_common
+                                                .heap_type
+                                            == HEAP_TYPE_FUNC
+                                        || table_seg->elem_ref_type
+                                                   ->ref_ht_common.heap_type
+                                               > 0))
+#endif
+                            ) {
+                                for (j = 0; j < table_seg->value_count; j++) {
+                                    if (table_seg->init_values[j].u.ref_index
+                                        == func_idx) {
+                                        func_declared = true;
+                                        break;
+                                    }
                                 }
                             }
                         }
@@ -12406,6 +12497,10 @@ re_scan:
                 wasm_set_refheaptype_typeidx(&wasm_ref_type.ref_ht_typeidx,
                                              false, type_idx);
                 PUSH_REF(wasm_ref_type.ref_type);
+#endif
+
+#if WASM_ENABLE_WAMR_COMPILER != 0
+                module->is_ref_types_used = true;
 #endif
                 break;
             }
@@ -12617,6 +12712,8 @@ re_scan:
                     wasm_loader_mask_local(loader_ctx, local_idx - param_count);
                 }
 #endif
+
+                POP_TYPE(local_type);
                 break;
             }
 

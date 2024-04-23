@@ -440,7 +440,7 @@ check_feature_flags(char *error_buf, uint32 error_buf_size,
 #endif
 
 #if WASM_ENABLE_THREAD_MGR == 0
-    if (feature_flags & WASM_FEATURE_THREADS) {
+    if (feature_flags & WASM_FEATURE_MULTI_THREAD) {
         set_error_buf(error_buf, error_buf_size,
                       "thread is not enabled in this build");
         return false;
@@ -451,14 +451,6 @@ check_feature_flags(char *error_buf, uint32 error_buf_size,
     if (feature_flags & WASM_FEATURE_REF_TYPES) {
         set_error_buf(error_buf, error_buf_size,
                       "reference types is not enabled in this build");
-        return false;
-    }
-#endif
-
-#if WASM_ENABLE_TAIL_CALL == 0
-    if (feature_flags & WASM_FEATURE_TAIL_CALL) {
-        set_error_buf(error_buf, error_buf_size,
-                      "tail call is not enabled in this build");
         return false;
     }
 #endif
@@ -1111,181 +1103,6 @@ destroy_table_init_data_list(AOTTableInitData **data_list, uint32 count)
     wasm_runtime_free(data_list);
 }
 
-#if WASM_ENABLE_GC != 0
-static bool
-load_init_expr(const uint8 **p_buf, const uint8 *buf_end, AOTModule *module,
-               InitializerExpression *expr, char *error_buf,
-               uint32 error_buf_size)
-{
-    const uint8 *buf = *p_buf;
-    uint32 init_expr_type = 0;
-    bool free_if_fail = false;
-
-    buf = (uint8 *)align_ptr(buf, 4);
-
-    read_uint32(buf, buf_end, init_expr_type);
-
-    switch (init_expr_type) {
-        case INIT_EXPR_NONE:
-            break;
-        case INIT_EXPR_TYPE_I32_CONST:
-        case INIT_EXPR_TYPE_F32_CONST:
-            read_uint32(buf, buf_end, expr->u.i32);
-            break;
-        case INIT_EXPR_TYPE_I64_CONST:
-        case INIT_EXPR_TYPE_F64_CONST:
-            read_uint64(buf, buf_end, expr->u.i64);
-            break;
-        case INIT_EXPR_TYPE_V128_CONST:
-            read_byte_array(buf, buf_end, &expr->u.v128, sizeof(expr->u.v128));
-            break;
-        case INIT_EXPR_TYPE_GET_GLOBAL:
-            read_uint32(buf, buf_end, expr->u.global_index);
-            break;
-        case INIT_EXPR_TYPE_REFNULL_CONST:
-            read_uint32(buf, buf_end, expr->u.type_index);
-            break;
-        case INIT_EXPR_TYPE_FUNCREF_CONST:
-            read_uint32(buf, buf_end, expr->u.ref_index);
-            break;
-        case INIT_EXPR_TYPE_I31_NEW:
-            read_uint32(buf, buf_end, expr->u.i32);
-            break;
-        case INIT_EXPR_TYPE_STRUCT_NEW:
-        {
-            uint64 size;
-            uint32 type_idx, field_count;
-            AOTStructType *struct_type = NULL;
-            WASMStructNewInitValues *init_values = NULL;
-
-            read_uint32(buf, buf_end, type_idx);
-            read_uint32(buf, buf_end, field_count);
-
-            size = offsetof(WASMStructNewInitValues, fields)
-                   + sizeof(WASMValue) * (uint64)field_count;
-            if (!(init_values =
-                      loader_malloc(size, error_buf, error_buf_size))) {
-                return false;
-            }
-            free_if_fail = true;
-            expr->u.data = init_values;
-
-            if (type_idx >= module->type_count) {
-                set_error_buf(error_buf, error_buf_size,
-                              "unknown struct type.");
-                goto fail;
-            }
-
-            struct_type = (AOTStructType *)module->types[type_idx];
-
-            if (struct_type->field_count != field_count) {
-                set_error_buf(error_buf, error_buf_size,
-                              "invalid field count.");
-                goto fail;
-            }
-
-            if (field_count > 0) {
-                uint32 i;
-
-                for (i = 0; i < field_count; i++) {
-                    uint32 field_size =
-                        wasm_value_type_size(struct_type->fields[i].field_type);
-                    if (field_size <= sizeof(uint32))
-                        read_uint32(buf, buf_end, init_values->fields[i].u32);
-                    else if (field_size == sizeof(uint64))
-                        read_uint64(buf, buf_end, init_values->fields[i].u64);
-                    else if (field_size == sizeof(uint64) * 2)
-                        read_byte_array(buf, buf_end, &init_values->fields[i],
-                                        field_size);
-                    else {
-                        bh_assert(0);
-                    }
-                }
-            }
-
-            break;
-        }
-        case INIT_EXPR_TYPE_STRUCT_NEW_DEFAULT:
-            read_uint32(buf, buf_end, expr->u.type_index);
-            break;
-        case INIT_EXPR_TYPE_ARRAY_NEW:
-        case INIT_EXPR_TYPE_ARRAY_NEW_DEFAULT:
-        case INIT_EXPR_TYPE_ARRAY_NEW_FIXED:
-        {
-            uint32 type_idx, length;
-            AOTArrayType *array_type = NULL;
-            WASMArrayNewInitValues *init_values = NULL;
-
-            read_uint32(buf, buf_end, type_idx);
-            read_uint32(buf, buf_end, length);
-
-            if (type_idx >= module->type_count) {
-                set_error_buf(error_buf, error_buf_size, "unknown array type.");
-                goto fail;
-            }
-
-            array_type = (AOTArrayType *)module->types[type_idx];
-
-            if (init_expr_type == INIT_EXPR_TYPE_ARRAY_NEW_DEFAULT) {
-                expr->u.array_new_default.type_index = type_idx;
-                expr->u.array_new_default.N = length;
-            }
-            else {
-
-                uint64 size = offsetof(WASMArrayNewInitValues, elem_data)
-                              + sizeof(WASMValue) * (uint64)length;
-                if (!(init_values =
-                          loader_malloc(size, error_buf, error_buf_size))) {
-                    return false;
-                }
-                free_if_fail = true;
-                expr->u.data = init_values;
-
-                init_values->type_idx = type_idx;
-                init_values->length = length;
-
-                if (length > 0) {
-                    uint32 i;
-                    uint32 elem_size =
-                        wasm_value_type_size(array_type->elem_type);
-
-                    for (i = 0; i < length; i++) {
-
-                        if (elem_size <= sizeof(uint32))
-                            read_uint32(buf, buf_end,
-                                        init_values->elem_data[i].u32);
-                        else if (elem_size == sizeof(uint64))
-                            read_uint64(buf, buf_end,
-                                        init_values->elem_data[i].u64);
-                        else if (elem_size == sizeof(uint64) * 2)
-                            read_byte_array(buf, buf_end,
-                                            &init_values->elem_data[i],
-                                            elem_size);
-                        else {
-                            bh_assert(0);
-                        }
-                    }
-                }
-            }
-            break;
-        }
-        default:
-            set_error_buf(error_buf, error_buf_size, "invalid init expr type.");
-            return false;
-    }
-
-    expr->init_expr_type = (uint8)init_expr_type;
-
-    *p_buf = buf;
-    return true;
-fail:
-    if (free_if_fail) {
-        wasm_runtime_free(expr->u.data);
-    }
-    return false;
-}
-#endif /* end of WASM_ENABLE_GC != 0 */
-
 static bool
 load_init_expr(const uint8 **p_buf, const uint8 *buf_end, AOTModule *module,
                InitializerExpression *expr, char *error_buf,
@@ -1664,20 +1481,10 @@ load_table_init_data_list(const uint8 **p_buf, const uint8 *buf_end,
         data_list[i]->offset.u.i64 = (int64)init_expr_value;
         data_list[i]->value_count = value_count;
         for (j = 0; j < data_list[i]->value_count; j++) {
-#if WASM_ENABLE_GC != 0
             if (!load_init_expr(&buf, buf_end, module,
                                 &data_list[i]->init_values[j], error_buf,
                                 error_buf_size))
                 return false;
-#else
-            data_list[i]->init_values[j].init_expr_type =
-                INIT_EXPR_TYPE_FUNCREF_CONST;
-#if UINTPTR_MAX == UINT64_MAX
-            read_uint64(buf, buf_end, data_list[i]->init_values[j].u.ref_index);
-#else
-            read_uint32(buf, buf_end, data_list[i]->init_values[j].u.ref_index);
-#endif
-#endif /* end of WASM_ENABLE_GC != 0 */
         }
     }
 
@@ -1869,6 +1676,11 @@ load_types(const uint8 **p_buf, const uint8 *buf_end, AOTModule *module,
 
             func_type->param_cell_num = param_cell_num;
             func_type->ret_cell_num = ret_cell_num;
+
+#if WASM_ENABLE_QUICK_AOT_ENTRY != 0
+            func_type->quick_aot_entry =
+                wasm_native_lookup_quick_aot_entry(func_type);
+#endif
 
             LOG_VERBOSE("type %u: func, param count: %d, result count: %d, "
                         "ref type map count: %d",
@@ -2144,9 +1956,6 @@ load_types(const uint8 **p_buf, const uint8 *buf_end, AOTModule *module,
 
         buf = align_ptr(buf, 4);
         read_uint16(buf, buf_end, type_flag);
-        /* Dummy read to ignore the is_sub_final and parent_type_idx */
-        read_uint16(buf, buf_end, param_count);
-        read_uint32(buf, buf_end, param_count);
         read_uint16(buf, buf_end, param_count);
         read_uint16(buf, buf_end, result_count);
 
@@ -2321,24 +2130,14 @@ load_globals(const uint8 **p_buf, const uint8 *buf_end, AOTModule *module,
 
     /* Create each global */
     for (i = 0; i < module->global_count; i++) {
-#if WASM_ENABLE_GC == 0
-        uint16 init_expr_type;
-#endif
-
         read_uint8(buf, buf_end, globals[i].type);
         read_uint8(buf, buf_end, globals[i].is_mutable);
 
-#if WASM_ENABLE_GC != 0
+        buf = align_ptr(buf, 4);
+
         if (!load_init_expr(&buf, buf_end, module, &globals[i].init_expr,
                             error_buf, error_buf_size))
             return false;
-#else
-        read_uint16(buf, buf_end, init_expr_type);
-
-        buf = align_ptr(buf, 4);
-
-        globals[i].init_expr.init_expr_type = (uint8)init_expr_type;
-#endif /* end of WASM_ENABLE_GC != 0 */
 
         globals[i].size = wasm_value_type_size(globals[i].type);
         globals[i].data_offset = data_offset;
@@ -2810,6 +2609,42 @@ load_function_section(const uint8 *buf, const uint8 *buf_end, AOTModule *module,
         p += (uint32)size * 2;
 #endif
     }
+
+#if WASM_ENABLE_GC != 0
+    /* Local(params and locals) ref flags for all import and non-imported
+     * functions. The flags indicate whether each cell in the AOTFrame local
+     * area is a GC reference. */
+    size = sizeof(LocalRefFlag)
+           * (uint64)(module->import_func_count + module->func_count);
+    if (size > 0) {
+        if (!(module->func_local_ref_flags =
+                  loader_malloc(size, error_buf, error_buf_size))) {
+            return false;
+        }
+
+        for (i = 0; i < module->import_func_count + module->func_count; i++) {
+            uint32 local_ref_flag_cell_num;
+
+            buf = (uint8 *)align_ptr(buf, sizeof(uint32));
+            read_uint32(
+                p, p_end,
+                module->func_local_ref_flags[i].local_ref_flag_cell_num);
+
+            local_ref_flag_cell_num =
+                module->func_local_ref_flags[i].local_ref_flag_cell_num;
+            size = sizeof(uint8) * (uint64)local_ref_flag_cell_num;
+            if (size > 0) {
+                if (!(module->func_local_ref_flags[i].local_ref_flags =
+                          loader_malloc(size, error_buf, error_buf_size))) {
+                    return false;
+                }
+                read_byte_array(p, p_end,
+                                module->func_local_ref_flags[i].local_ref_flags,
+                                local_ref_flag_cell_num);
+            }
+        }
+    }
+#endif /* end of WASM_ENABLE_GC != 0 */
 
     if (p != buf_end) {
         set_error_buf(error_buf, error_buf_size,
@@ -4374,6 +4209,20 @@ aot_unload(AOTModule *module)
         wasm_runtime_free(module->max_local_cell_nums);
     if (module->max_stack_cell_nums)
         wasm_runtime_free(module->max_stack_cell_nums);
+#endif
+
+#if WASM_ENABLE_GC != 0
+    if (module->func_local_ref_flags) {
+        uint32 i;
+        for (i = 0; i < module->import_func_count + module->func_count; i++) {
+            if (module->func_local_ref_flags[i].local_ref_flags) {
+                wasm_runtime_free(
+                    module->func_local_ref_flags[i].local_ref_flags);
+            }
+        }
+
+        wasm_runtime_free(module->func_local_ref_flags);
+    }
 #endif
 
     if (module->func_ptrs)

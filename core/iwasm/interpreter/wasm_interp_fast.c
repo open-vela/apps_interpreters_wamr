@@ -5062,8 +5062,10 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                         uint32 n, s, d;
                         WASMTableInstance *tbl_inst;
                         table_elem_type_t *table_elems;
-                        InitializerExpression *init_values;
+                        InitializerExpression *tbl_seg_init_values = NULL,
+                                              *init_values;
                         uint64 i;
+                        uint32 tbl_seg_len = 0;
 
                         elem_idx = read_uint32(frame_ip);
                         bh_assert(elem_idx < module->module->table_seg_count);
@@ -5082,7 +5084,13 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                             /* table segment isn't dropped */
                             tbl_seg_init_values =
                                 module->module->table_segments[elem_idx]
-                                    .value_count)
+                                    .init_values;
+                            tbl_seg_len =
+                                module->module->table_segments[elem_idx]
+                                    .value_count;
+                        }
+
+                        if (offset_len_out_of_bounds(s, n, tbl_seg_len)
                             || offset_len_out_of_bounds(d, n,
                                                         tbl_inst->cur_size)) {
                             wasm_set_exception(module,
@@ -5094,30 +5102,13 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                             break;
                         }
 
-                        if (bh_bitmap_get_bit(module->e->common.elem_dropped,
-                                              elem_idx)) {
-                            wasm_set_exception(module,
-                                               "out of bounds table access");
-                            goto got_exception;
-                        }
-
-                        if (!wasm_elem_is_passive(
-                                module->module->table_segments[elem_idx]
-                                    .mode)) {
-                            wasm_set_exception(module,
-                                               "out of bounds table access");
-                            goto got_exception;
-                        }
-
                         table_elems = tbl_inst->elems + d;
-                        init_values =
-                            module->module->table_segments[elem_idx].init_values
-                            + s;
+                        init_values = tbl_seg_init_values + s;
 #if WASM_ENABLE_GC != 0
                         SYNC_ALL_TO_FRAME();
 #endif
                         for (i = 0; i < n; i++) {
-                            /* UINT32_MAX indicates that it is an null ref */
+                            /* UINT32_MAX indicates that it is a null ref */
                             bh_assert(init_values[i].init_expr_type
                                           == INIT_EXPR_TYPE_REFNULL_CONST
                                       || init_values[i].init_expr_type
@@ -5695,8 +5686,6 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 #if WASM_ENABLE_GC == 0
         /* SELECT_T is converted to SELECT or SELECT_64 */
         HANDLE_OP(WASM_OP_SELECT_T)
-#endif
-#if WASM_ENABLE_GC == 0
         HANDLE_OP(WASM_OP_CALL_REF)
         HANDLE_OP(WASM_OP_RETURN_CALL_REF)
         HANDLE_OP(WASM_OP_REF_EQ)
@@ -5704,6 +5693,16 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
         HANDLE_OP(WASM_OP_BR_ON_NULL)
         HANDLE_OP(WASM_OP_BR_ON_NON_NULL)
         HANDLE_OP(WASM_OP_GC_PREFIX)
+#endif
+#if WASM_ENABLE_EXCE_HANDLING == 0
+        /* if exception handling is disabled, these opcodes issue a trap */
+        HANDLE_OP(WASM_OP_TRY)
+        HANDLE_OP(WASM_OP_CATCH)
+        HANDLE_OP(WASM_OP_THROW)
+        HANDLE_OP(WASM_OP_RETHROW)
+        HANDLE_OP(WASM_OP_DELEGATE)
+        HANDLE_OP(WASM_OP_CATCH_ALL)
+        HANDLE_OP(EXT_OP_TRY)
 #endif
         HANDLE_OP(WASM_OP_UNUSED_0x16)
         HANDLE_OP(WASM_OP_UNUSED_0x17)
