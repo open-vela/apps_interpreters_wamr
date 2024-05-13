@@ -9,6 +9,7 @@
 #include "aot_reloc.h"
 #include "../common/wasm_runtime_common.h"
 #include "../common/wasm_native.h"
+#include "../common/wasm_loader_common.h"
 #include "../compilation/aot.h"
 
 #if WASM_ENABLE_DEBUG_AOT != 0
@@ -1043,6 +1044,12 @@ load_memory_info(const uint8 **p_buf, const uint8 *buf_end, AOTModule *module,
 
     for (i = 0; i < module->memory_count; i++) {
         read_uint32(buf, buf_end, module->memories[i].memory_flags);
+
+        if (!wasm_memory_check_flags(module->memories[i].memory_flags,
+                                     error_buf, error_buf_size, true)) {
+            return false;
+        }
+
         read_uint32(buf, buf_end, module->memories[i].num_bytes_per_page);
         read_uint32(buf, buf_end, module->memories[i].mem_init_page_count);
         read_uint32(buf, buf_end, module->memories[i].mem_max_page_count);
@@ -3634,103 +3641,20 @@ fail:
     return ret;
 }
 
-#if WASM_ENABLE_LINUX_PERF != 0
-struct func_info {
-    uint32 idx;
-    void *ptr;
-};
-
-static uint32
-get_func_size(const AOTModule *module, struct func_info *sorted_func_ptrs,
-              uint32 idx)
-{
-    uint32 func_sz;
-
-    if (idx == module->func_count - 1)
-        func_sz = (uintptr_t)module->code + module->code_size
-                  - (uintptr_t)(sorted_func_ptrs[idx].ptr);
-    else
-        func_sz = (uintptr_t)(sorted_func_ptrs[idx + 1].ptr)
-                  - (uintptr_t)(sorted_func_ptrs[idx].ptr);
-
-    return func_sz;
-}
-
-static int
-compare_func_ptrs(const void *f1, const void *f2)
-{
-    return (intptr_t)((struct func_info *)f1)->ptr
-           - (intptr_t)((struct func_info *)f2)->ptr;
-}
-
-static struct func_info *
-sort_func_ptrs(const AOTModule *module, char *error_buf, uint32 error_buf_size)
-{
-    uint64 content_len;
-    struct func_info *sorted_func_ptrs;
-    unsigned i;
-
-    content_len = (uint64)sizeof(struct func_info) * module->func_count;
-    sorted_func_ptrs = loader_malloc(content_len, error_buf, error_buf_size);
-    if (!sorted_func_ptrs)
-        return NULL;
-
-    for (i = 0; i < module->func_count; i++) {
-        sorted_func_ptrs[i].idx = i;
-        sorted_func_ptrs[i].ptr = module->func_ptrs[i];
-    }
-
-    qsort(sorted_func_ptrs, module->func_count, sizeof(struct func_info),
-          compare_func_ptrs);
-
-    return sorted_func_ptrs;
-}
-
+#if WASM_ENABLE_MEMORY64 != 0
 static bool
-create_perf_map(const AOTModule *module, char *error_buf, uint32 error_buf_size)
+has_module_memory64(AOTModule *module)
 {
-    struct func_info *sorted_func_ptrs = NULL;
-    char perf_map_info[128] = { 0 };
-    FILE *perf_map = NULL;
-    uint32 i;
-    pid_t pid = getpid();
-    bool ret = false;
+    /* TODO: multi-memories for now assuming the memory idx type is consistent
+     * across multi-memories */
+    if (module->import_memory_count > 0)
+        return !!(module->import_memories[0].memory_flags & MEMORY64_FLAG);
+    else if (module->memory_count > 0)
+        return !!(module->memories[0].memory_flags & MEMORY64_FLAG);
 
-    sorted_func_ptrs = sort_func_ptrs(module, error_buf, error_buf_size);
-    if (!sorted_func_ptrs)
-        goto quit;
-
-    snprintf(perf_map_info, 128, "/tmp/perf-%d.map", pid);
-    perf_map = fopen(perf_map_info, "w");
-    if (!perf_map) {
-        LOG_WARNING("warning: can't create /tmp/perf-%d.map, because %s", pid,
-                    strerror(errno));
-        goto quit;
-    }
-
-    for (i = 0; i < module->func_count; i++) {
-        memset(perf_map_info, 0, 128);
-        snprintf(perf_map_info, 128, "%lx  %x  aot_func#%u\n",
-                 (uintptr_t)sorted_func_ptrs[i].ptr,
-                 get_func_size(module, sorted_func_ptrs, i),
-                 sorted_func_ptrs[i].idx);
-
-        fwrite(perf_map_info, 1, strlen(perf_map_info), perf_map);
-    }
-
-    LOG_VERBOSE("generate /tmp/perf-%d.map", pid);
-    ret = true;
-
-quit:
-    if (sorted_func_ptrs)
-        free(sorted_func_ptrs);
-
-    if (perf_map)
-        fclose(perf_map);
-
-    return ret;
+    return false;
 }
-#endif /* WASM_ENABLE_LINUX_PERF != 0*/
+#endif
 
 static bool
 load_from_sections(AOTModule *module, AOTSection *sections,
@@ -3743,6 +3667,7 @@ load_from_sections(AOTModule *module, AOTSection *sections,
     uint32 i, func_index, func_type_index;
     AOTFuncType *func_type;
     AOTExport *exports;
+    uint8 malloc_free_io_type = VALUE_TYPE_I32;
 
     while (section) {
         buf = section->section_body;
@@ -3817,7 +3742,10 @@ load_from_sections(AOTModule *module, AOTSection *sections,
     module->malloc_func_index = (uint32)-1;
     module->free_func_index = (uint32)-1;
     module->retain_func_index = (uint32)-1;
-
+#if WASM_ENABLE_MEMORY64 != 0
+    if (has_module_memory64(module))
+        malloc_free_io_type = VALUE_TYPE_I64;
+#endif
     exports = module->exports;
     for (i = 0; i < module->export_count; i++) {
         if (exports[i].kind == EXPORT_KIND_FUNC
@@ -3827,8 +3755,8 @@ load_from_sections(AOTModule *module, AOTSection *sections,
                 func_type_index = module->func_type_indexes[func_index];
                 func_type = (AOTFuncType *)module->types[func_type_index];
                 if (func_type->param_count == 1 && func_type->result_count == 1
-                    && func_type->types[0] == VALUE_TYPE_I32
-                    && func_type->types[1] == VALUE_TYPE_I32) {
+                    && func_type->types[0] == malloc_free_io_type
+                    && func_type->types[1] == malloc_free_io_type) {
                     bh_assert(module->malloc_func_index == (uint32)-1);
                     module->malloc_func_index = func_index;
                     LOG_VERBOSE("Found malloc function, name: %s, index: %u",
@@ -3840,9 +3768,9 @@ load_from_sections(AOTModule *module, AOTSection *sections,
                 func_type_index = module->func_type_indexes[func_index];
                 func_type = (AOTFuncType *)module->types[func_type_index];
                 if (func_type->param_count == 2 && func_type->result_count == 1
-                    && func_type->types[0] == VALUE_TYPE_I32
+                    && func_type->types[0] == malloc_free_io_type
                     && func_type->types[1] == VALUE_TYPE_I32
-                    && func_type->types[2] == VALUE_TYPE_I32) {
+                    && func_type->types[2] == malloc_free_io_type) {
                     uint32 j;
                     WASMExport *export_tmp;
 
@@ -3866,8 +3794,8 @@ load_from_sections(AOTModule *module, AOTSection *sections,
                                 (AOTFuncType *)module->types[func_type_index];
                             if (func_type->param_count == 1
                                 && func_type->result_count == 1
-                                && func_type->types[0] == VALUE_TYPE_I32
-                                && func_type->types[1] == VALUE_TYPE_I32) {
+                                && func_type->types[0] == malloc_free_io_type
+                                && func_type->types[1] == malloc_free_io_type) {
                                 bh_assert(module->retain_func_index
                                           == (uint32)-1);
                                 module->retain_func_index = export_tmp->index;
@@ -3893,7 +3821,7 @@ load_from_sections(AOTModule *module, AOTSection *sections,
                 func_type_index = module->func_type_indexes[func_index];
                 func_type = (AOTFuncType *)module->types[func_type_index];
                 if (func_type->param_count == 1 && func_type->result_count == 0
-                    && func_type->types[0] == VALUE_TYPE_I32) {
+                    && func_type->types[0] == malloc_free_io_type) {
                     bh_assert(module->free_func_index == (uint32)-1);
                     module->free_func_index = func_index;
                     LOG_VERBOSE("Found free function, name: %s, index: %u",
