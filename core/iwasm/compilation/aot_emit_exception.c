@@ -160,12 +160,6 @@ aot_emit_exception(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
             return false;
         }
 
-        if (comp_ctx->aot_frame) {
-            if (!commit_ip(comp_ctx, func_ctx, func_ctx->exception_ip_phi,
-                           is_64bit))
-                return false;
-        }
-
         /* Create return IR */
         AOTFuncType *aot_func_type = func_ctx->aot_func->func_type;
         if (!aot_build_zero_function_ret(comp_ctx, func_ctx, aot_func_type)) {

@@ -775,15 +775,19 @@ wasm_enlarge_memory_internal(WASMModuleInstance *module, uint32 inc_page_count)
     total_page_count = inc_page_count + cur_page_count;
     total_size_new = num_bytes_per_page * (uint64)total_page_count;
 
-    bh_assert(new_size > 0);
-    bh_assert(new_size > old_size);
+    if (inc_page_count <= 0)
+        /* No need to enlarge memory */
+        return true;
 
-    if (mapped_mem) {
-        new_mem = os_mremap(mapped_mem, old_size, new_size);
+    if (total_page_count < cur_page_count) { /* integer overflow */
+        ret = false;
+        goto return_func;
     }
-    else {
-        new_mem = os_mmap(NULL, new_size, MMAP_PROT_NONE, MMAP_MAP_NONE,
-                          os_get_invalid_handle());
+
+    if (total_page_count > max_page_count) {
+        failure_reason = MAX_SIZE_REACHED;
+        ret = false;
+        goto return_func;
     }
 
     bh_assert(total_size_new

@@ -56,8 +56,6 @@ bh_static_assert(sizeof(AOTMemoryInstance) == 120);
 bh_static_assert(offsetof(AOTTableInstance, elems) == 24);
 
 bh_static_assert(offsetof(AOTModuleInstanceExtra, stack_sizes) == 0);
-bh_static_assert(offsetof(AOTModuleInstanceExtra, common.c_api_func_imports)
-                 == sizeof(uint64));
 
 bh_static_assert(sizeof(CApiFuncImport) == sizeof(uintptr_t) * 3);
 
@@ -1294,7 +1292,7 @@ lookup_post_instantiate_func(AOTModuleInstance *module_inst,
     AOTFunctionInstance *func;
     AOTFuncType *func_type;
 
-    if (!(func = aot_lookup_function(module_inst, func_name)))
+    if (!(func = aot_lookup_function(module_inst, func_name, NULL)))
         /* Not found */
         return NULL;
 
@@ -1945,17 +1943,6 @@ aot_deinstantiate(AOTModuleInstance *module_inst, bool is_sub_inst)
     }
 #endif
 
-#if WASM_ENABLE_GC != 0
-    if (!is_sub_inst) {
-        AOTModuleInstanceExtra *extra =
-            (AOTModuleInstanceExtra *)module_inst->e;
-        if (extra->common.gc_heap_handle)
-            mem_allocator_destroy(extra->common.gc_heap_handle);
-        if (extra->common.gc_heap_pool)
-            wasm_runtime_free(extra->common.gc_heap_pool);
-    }
-#endif
-
     if (!is_sub_inst) {
 #if WASM_ENABLE_WASI_NN != 0
         wasi_nn_destroy(module_inst);
@@ -1974,7 +1961,8 @@ aot_deinstantiate(AOTModuleInstance *module_inst, bool is_sub_inst)
 }
 
 AOTFunctionInstance *
-aot_lookup_function(const AOTModuleInstance *module_inst, const char *name)
+aot_lookup_function(const AOTModuleInstance *module_inst, const char *name,
+                    const char *signature)
 {
     uint32 i;
     AOTFunctionInstance *export_funcs =
@@ -1983,6 +1971,7 @@ aot_lookup_function(const AOTModuleInstance *module_inst, const char *name)
     for (i = 0; i < module_inst->export_func_count; i++)
         if (!strcmp(export_funcs[i].func_name, name))
             return &export_funcs[i];
+    (void)signature;
     return NULL;
 }
 
@@ -2567,18 +2556,21 @@ aot_module_malloc_internal(AOTModuleInstance *module_inst,
              && module->free_func_index != (uint32)-1) {
         AOTFunctionInstance *malloc_func, *retain_func = NULL;
         char *malloc_func_name;
+        char *malloc_func_sig;
 
         if (module->retain_func_index != (uint32)-1) {
             malloc_func_name = "__new";
-            retain_func = aot_lookup_function(module_inst, "__retain");
+            malloc_func_sig = "(ii)i";
+            retain_func = aot_lookup_function(module_inst, "__retain", "(i)i");
             if (!retain_func)
-                retain_func = aot_lookup_function(module_inst, "__pin");
+                retain_func = aot_lookup_function(module_inst, "__pin", "(i)i");
             bh_assert(retain_func);
         }
         else {
             malloc_func_name = "malloc";
+            malloc_func_sig = "(i)i";
         }
-        malloc_func = aot_lookup_function(module_inst, malloc_func_name);
+        malloc_func = aot_lookup_function(module_inst, malloc_func_name, malloc_func_sig);
 
         if (!malloc_func
             || !execute_malloc_function(module_inst, exec_env, malloc_func,
@@ -2688,9 +2680,9 @@ aot_module_free_internal(AOTModuleInstance *module_inst, WASMExecEnv *exec_env,
             else {
                 free_func_name = "free";
             }
-            free_func = aot_lookup_function(module_inst, free_func_name);
+            free_func = aot_lookup_function(module_inst, free_func_name, "(i)i");
             if (!free_func && module->retain_func_index != (uint32)-1)
-                free_func = aot_lookup_function(module_inst, "__unpin");
+                free_func = aot_lookup_function(module_inst, "__unpin", "(i)i");
 
             if (free_func)
                 execute_free_function(module_inst, exec_env, free_func, ptr);
@@ -3781,48 +3773,6 @@ aot_create_call_stack(struct WASMExecEnv *exec_env)
         frame.func_offset = (uint32)cur_frame->ip_offset;
         frame.func_name_wp = get_func_name_from_index(
             module_inst, (uint32)cur_frame->func_index);
-
-        if (cur_frame->func_index >= module->import_func_count) {
-            uint32 aot_func_idx =
-                (uint32)(cur_frame->func_index - module->import_func_count);
-            max_local_cell_num = module->max_local_cell_nums[aot_func_idx];
-            max_stack_cell_num = module->max_stack_cell_nums[aot_func_idx];
-        }
-        else {
-            AOTFuncType *func_type =
-                module->import_funcs[cur_frame->func_index].func_type;
-            max_local_cell_num =
-                func_type->param_cell_num > 2 ? func_type->param_cell_num : 2;
-            max_stack_cell_num = 0;
-        }
-
-        all_cell_num = max_local_cell_num + max_stack_cell_num;
-#if WASM_ENABLE_GC == 0
-        lp_size = all_cell_num * 4;
-#else
-        lp_size = align_uint(all_cell_num * 5, 4);
-#endif
-        if (lp_size > 0) {
-            if (!(frame.lp = wasm_runtime_malloc(lp_size))) {
-                destroy_c_api_frames(module_inst->frames);
-                return false;
-            }
-            bh_memcpy_s(frame.lp, lp_size, cur_frame->lp, lp_size);
-
-#if WASM_ENABLE_GC != 0
-            uint32 local_ref_flags_cell_num =
-                module->func_local_ref_flags[frame.func_index]
-                    .local_ref_flag_cell_num;
-            uint8 *local_ref_flags =
-                module->func_local_ref_flags[frame.func_index].local_ref_flags;
-            frame.sp = frame.lp + (cur_frame->sp - cur_frame->lp);
-            frame.frame_ref = (uint8 *)frame.lp
-                              + (cur_frame->frame_ref - (uint8 *)cur_frame->lp);
-            /* copy local ref flags from AOT module */
-            bh_memcpy_s(frame.frame_ref, local_ref_flags_cell_num,
-                        local_ref_flags, lp_size);
-#endif
-        }
 
         if (cur_frame->func_index >= module->import_func_count) {
             uint32 aot_func_idx =

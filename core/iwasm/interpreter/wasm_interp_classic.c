@@ -610,18 +610,6 @@ wasm_interp_get_frame_ref(WASMInterpFrame *frame)
     } while (0)
 #endif
 
-#if WASM_ENABLE_EXCE_HANDLING != 0
-/* unwind the CSP to a given label and optionally modify the labeltype  */
-#define UNWIND_CSP(N, T)                                                   \
-    do {                                                                   \
-        /* unwind to function frame  */                                    \
-        frame_csp -= N;                                                    \
-        /* drop handlers and values pushd in try block */                  \
-        frame_sp = (frame_csp - 1)->frame_sp;                              \
-        (frame_csp - 1)->label_type = T ? T : (frame_csp - 1)->label_type; \
-    } while (0)
-#endif
-
 #define SYNC_ALL_TO_FRAME()     \
     do {                        \
         frame->sp = frame_sp;   \
@@ -683,25 +671,6 @@ wasm_interp_get_frame_ref(WASMInterpFrame *frame)
             p += _off;                                 \
         }                                              \
     } while (0)
-
-#if WASM_ENABLE_MEMORY64 != 0
-#define read_leb_mem_offset(p, p_end, res)                                \
-    do {                                                                  \
-        uint8 _val = *p;                                                  \
-        if (!(_val & 0x80)) {                                             \
-            res = (mem_offset_t)_val;                                     \
-            p++;                                                          \
-        }                                                                 \
-        else {                                                            \
-            uint32 _off = 0;                                              \
-            res = (mem_offset_t)read_leb(p, &_off, is_memory64 ? 64 : 32, \
-                                         false);                          \
-            p += _off;                                                    \
-        }                                                                 \
-    } while (0)
-#else
-#define read_leb_mem_offset(p, p_end, res) read_leb_uint32(p, p_end, res)
-#endif
 
 #if WASM_ENABLE_MEMORY64 != 0
 #define read_leb_mem_offset(p, p_end, res)                                \
@@ -2453,66 +2422,10 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                 uint32 tbl_idx, elem_idx;
                 table_elem_type_t elem_val;
 
-                        PUSH_REF(stringref_obj);
-                        HANDLE_OP_END();
-                    }
-                    case WASM_OP_STRING_ENCODE_UTF8_ARRAY:
-                    case WASM_OP_STRING_ENCODE_WTF16_ARRAY:
-                    case WASM_OP_STRING_ENCODE_LOSSY_UTF8_ARRAY:
-                    case WASM_OP_STRING_ENCODE_WTF8_ARRAY:
-                    {
-                        uint32 start, array_len, count;
-                        int32 bytes_written;
-                        EncodingFlag flag = WTF8;
-                        WASMArrayType *array_type;
-                        void *arr_start_addr;
+                read_leb_uint32(frame_ip, frame_ip_end, tbl_idx);
+                bh_assert(tbl_idx < module->table_count);
 
-                        start = POP_I32();
-                        array_obj = POP_REF();
-                        stringref_obj = POP_REF();
-
-                        str_obj = (WASMString)wasm_stringref_obj_get_value(
-                            stringref_obj);
-
-                        array_type = (WASMArrayType *)wasm_obj_get_defined_type(
-                            (WASMObjectRef)array_obj);
-                        arr_start_addr =
-                            wasm_array_obj_elem_addr(array_obj, start);
-                        array_len = wasm_array_obj_length(array_obj);
-
-                        if (start > array_len) {
-                            wasm_set_exception(module,
-                                               "out of bounds array access");
-                            goto got_exception;
-                        }
-
-                        if (opcode == WASM_OP_STRING_ENCODE_WTF16_ARRAY) {
-                            if (array_type->elem_type != VALUE_TYPE_I16) {
-                                wasm_set_exception(module,
-                                                   "array type mismatch");
-                                goto got_exception;
-                            }
-                            flag = WTF16;
-                        }
-                        else {
-                            if (array_type->elem_type != VALUE_TYPE_I8) {
-                                wasm_set_exception(module,
-                                                   "array type mismatch");
-                                goto got_exception;
-                            }
-                            if (opcode == WASM_OP_STRING_ENCODE_UTF8_ARRAY) {
-                                flag = UTF8;
-                            }
-                            else if (opcode
-                                     == WASM_OP_STRING_ENCODE_WTF8_ARRAY) {
-                                flag = WTF8;
-                            }
-                            else if (
-                                opcode
-                                == WASM_OP_STRING_ENCODE_LOSSY_UTF8_ARRAY) {
-                                flag = LOSSY_UTF8;
-                            }
-                        }
+                tbl_inst = wasm_get_table_inst(module, tbl_idx);
 
 #if WASM_ENABLE_GC == 0
                 elem_val = POP_I32();
@@ -2525,8 +2438,9 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                     goto got_exception;
                 }
 
-                        bytes_written = wasm_string_encode(
-                            str_obj, 0, count, arr_start_addr, NULL, flag);
+                tbl_inst->elems[elem_idx] = elem_val;
+                HANDLE_OP_END();
+            }
 
             HANDLE_OP(WASM_OP_REF_NULL)
             {
