@@ -26,16 +26,11 @@ For example, there is a call-stack dump:
 ```
 
 - store the call-stack dump into a file, e.g. call_stack.txt
-<<<<<<< HEAD
 - run the following command to convert the address into line info:
-=======
-- run the following command to transfer the address to line info:
->>>>>>> Implement GC (Garbage Collection) feature for interpreter, AOT and LLVM-JIT (#3125)
   ```
   $ cd test-tools/addr2line
   $ python3 addr2line.py --wasi-sdk <wasi-sdk installation> --wabt <wabt installation> --wasm-file <wasm file path> call_stack.txt
   ```
-<<<<<<< HEAD
   The script will use *wasm-objdump* in wabt to transform address, then use *llvm-dwarfdump* to lookup the line info for each address
   in the call-stack dump.
 - if addresses are not available in the stack trace (i.e. iwasm <= 1.3.2) or iwasm is used in fast interpreter mode,
@@ -68,19 +63,6 @@ def locate_sourceMappingURL_section(wasm_objdump: Path, wasm_file: Path) -> bool
             return True
 
     return False
-=======
-- the script will use *wasm-objdump* in wabt to transform address, then use *llvm-dwarfdump* to lookup the line info for each address
-  in the call-stack dump.
-- the output will be:
-  ```
-  #00: 0x0a04 - $f18
-  #01: 0x08e4 - $f11 (FILE:quicksort.c LINE:  176 COLUMN: 11 FUNC:Quick)
-  #02: 0x096f - $f12 (FILE:quicksort.c LINE:  182 COLUMN:  3 FUNC:main)
-  #03: 0x01aa - _start
-  ```
-
-"""
->>>>>>> Implement GC (Garbage Collection) feature for interpreter, AOT and LLVM-JIT (#3125)
 
 
 def get_code_section_start(wasm_objdump: Path, wasm_file: Path) -> int:
@@ -102,18 +84,6 @@ def get_code_section_start(wasm_objdump: Path, wasm_file: Path) -> int:
     )
     outputs = p.stdout.split(os.linesep)
 
-<<<<<<< HEAD
-=======
-    # if there is no .debug section, return -1
-    for line in outputs:
-        line = line.strip()
-        if ".debug_info" in line:
-            break
-    else:
-        print(f"No .debug_info section found {wasm_file}")
-        return -1
-
->>>>>>> Implement GC (Garbage Collection) feature for interpreter, AOT and LLVM-JIT (#3125)
     for line in outputs:
         line = line.strip()
         if "Code" in line:
@@ -122,13 +92,9 @@ def get_code_section_start(wasm_objdump: Path, wasm_file: Path) -> int:
     return -1
 
 
-<<<<<<< HEAD
 def get_line_info_from_function_addr_dwarf(
     dwarf_dump: Path, wasm_file: Path, offset: int
 ) -> tuple[str, str, str, str]:
-=======
-def get_line_info(dwarf_dump: Path, wasm_file: Path, offset: int) -> str:
->>>>>>> Implement GC (Garbage Collection) feature for interpreter, AOT and LLVM-JIT (#3125)
     """
     Find the location info of a given offset in a wasm file.
     """
@@ -142,7 +108,6 @@ def get_line_info(dwarf_dump: Path, wasm_file: Path, offset: int) -> str:
     )
     outputs = p.stdout.split(os.linesep)
 
-<<<<<<< HEAD
     function_name, function_file = "<unknown>", "unknown"
     function_line, function_column = "?", "?"
 
@@ -254,31 +219,6 @@ def get_line_info_from_function_addr_sourcemapping(
 
 
 def parse_line_info(line_info: str) -> tuple[str, str, str]:
-=======
-    capture_name = False
-    for line in outputs:
-        line = line.strip()
-
-        if "DW_TAG_subprogram" in line:
-            capture_name = True
-            continue
-
-        if "DW_AT_name" in line and capture_name:
-            PATTERN = r"DW_AT_name\s+\(\"(\S+)\"\)"
-            m = re.match(PATTERN, line)
-            assert m is not None
-
-            function_name = m.groups()[0]
-
-        if line.startswith("Line info"):
-            location = line
-            return (function_name, location)
-
-    return ()
-
-
-def parse_line_info(line_info: str) -> ():
->>>>>>> Implement GC (Garbage Collection) feature for interpreter, AOT and LLVM-JIT (#3125)
     """
     line_info -> [file, line, column]
     """
@@ -290,7 +230,6 @@ def parse_line_info(line_info: str) -> ():
     return (file, int(line), int(column))
 
 
-<<<<<<< HEAD
 def parse_call_stack_line(line: str) -> tuple[str, str, str]:
     """
     New format (WAMR > 1.3.2):
@@ -356,15 +295,6 @@ def demangle(cxxfilt: Path, function_name: str) -> str:
         universal_newlines=True,
     )
     return p.stdout.strip()
-=======
-def parse_call_stack_line(line: str) -> ():
-    """
-    #00: 0x0a04 - $f18   => (00, 0x0a04, $f18)
-    """
-    PATTERN = r"#([0-9]+): 0x([0-9a-f]+) - (\S+)"
-    m = re.match(PATTERN, line)
-    return m.groups() if m else None
->>>>>>> Implement GC (Garbage Collection) feature for interpreter, AOT and LLVM-JIT (#3125)
 
 
 def main():
@@ -373,15 +303,12 @@ def main():
     parser.add_argument("--wabt", type=Path, help="path to wabt")
     parser.add_argument("--wasm-file", type=Path, help="path to wasm file")
     parser.add_argument("call_stack_file", type=Path, help="path to a call stack file")
-<<<<<<< HEAD
     parser.add_argument(
         "--no-addr",
         action="store_true",
         help="use call stack without addresses or from fast interpreter mode",
     )
     parser.add_argument("--emsdk", type=Path, help="path to emsdk")
-=======
->>>>>>> Implement GC (Garbage Collection) feature for interpreter, AOT and LLVM-JIT (#3125)
     args = parser.parse_args()
 
     wasm_objdump = args.wabt.joinpath("bin/wasm-objdump")
@@ -390,7 +317,6 @@ def main():
     llvm_dwarf_dump = args.wasi_sdk.joinpath("bin/llvm-dwarfdump")
     assert llvm_dwarf_dump.exists()
 
-<<<<<<< HEAD
     llvm_cxxfilt = args.wasi_sdk.joinpath("bin/llvm-cxxfilt")
     assert llvm_cxxfilt.exists()
 
@@ -403,32 +329,21 @@ def main():
         emsymbolizer = args.emsdk.joinpath("upstream/emscripten/emsymbolizer")
         assert emsymbolizer.exists()
 
-=======
->>>>>>> Implement GC (Garbage Collection) feature for interpreter, AOT and LLVM-JIT (#3125)
     code_section_start = get_code_section_start(wasm_objdump, args.wasm_file)
     if code_section_start == -1:
         return -1
 
-<<<<<<< HEAD
     function_index_to_name = parse_module_functions(wasm_objdump, args.wasm_file)
 
     assert args.call_stack_file.exists()
     with open(args.call_stack_file, "rt", encoding="ascii") as f:
         for i, line in enumerate(f):
             line = line.strip()
-=======
-    assert args.call_stack_file.exists()
-    with open(args.call_stack_file, "rt", encoding="ascii") as f:
-        for line in f:
-            line = line.strip()
-
->>>>>>> Implement GC (Garbage Collection) feature for interpreter, AOT and LLVM-JIT (#3125)
             if not line:
                 continue
 
             splitted = parse_call_stack_line(line)
             if splitted is None:
-<<<<<<< HEAD
                 print(f"{line}")
                 continue
 
@@ -490,25 +405,6 @@ def main():
 
                 print(f"{i}: {function_name}")
                 print(f"\tat {function_file}:{function_line}:{function_column}")
-=======
-                print(line)
-                continue
-
-            _, offset, _ = splitted
-
-            offset = int(offset, 16)
-            offset = offset - code_section_start
-            line_info = get_line_info(llvm_dwarf_dump, args.wasm_file, offset)
-            if not line_info:
-                print(line)
-                continue
-
-            function_name, line_info = line_info
-            src_file, src_line, src_column = parse_line_info(line_info)
-            print(
-                f"{line} (FILE:{src_file} LINE:{src_line:5} COLUMN:{src_column:3} FUNC:{function_name})"
-            )
->>>>>>> Implement GC (Garbage Collection) feature for interpreter, AOT and LLVM-JIT (#3125)
 
     return 0
 

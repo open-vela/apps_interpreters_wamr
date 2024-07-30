@@ -5842,15 +5842,6 @@ copy_params_to_dynamic_space(WASMLoaderContext *loader_ctx, char *error_buf,
     bool disable_emit = false;
     bool is_if_block = (block->label_type == LABEL_TYPE_IF ? true : false);
     int16 operand_offset = 0;
-    uint64 size;
-
-    if (is_if_block)
-        condition_offset = *loader_ctx->frame_offset;
-
-    /* POP original parameter out */
-    for (i = 0; i < param_count; i++) {
-        int32 available_stack_cell =
-            (int32)(loader_ctx->stack_cell_num - block->stack_cell_num);
 
     uint64 size = (uint64)param_count * (sizeof(*cells) + sizeof(*src_offsets));
     bh_assert(size > 0);
@@ -6311,7 +6302,7 @@ re_scan:
 
 #if WASM_ENABLE_FAST_INTERP != 0
                 /* Recover top param_count values of frame_offset stack */
-                if (block->available_param_num) {
+                if (BLOCK_HAS_PARAM((block_type))) {
                     uint32 size;
                     size = sizeof(int16) * block_type.u.type->param_cell_num;
                     bh_memcpy_s(loader_ctx->frame_offset, size,
