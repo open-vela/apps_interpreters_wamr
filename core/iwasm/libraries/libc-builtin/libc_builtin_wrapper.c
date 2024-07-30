@@ -16,7 +16,7 @@
 void
 wasm_runtime_set_exception(wasm_module_inst_t module, const char *exception);
 
-uint32
+uint64
 wasm_runtime_module_realloc(wasm_module_inst_t module, uint64 ptr, uint64 size,
                             void **p_native_addr);
 
