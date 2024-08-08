@@ -1292,7 +1292,7 @@ lookup_post_instantiate_func(AOTModuleInstance *module_inst,
     AOTFunctionInstance *func;
     AOTFuncType *func_type;
 
-    if (!(func = aot_lookup_function(module_inst, func_name, NULL)))
+    if (!(func = aot_lookup_function(module_inst, func_name)))
         /* Not found */
         return NULL;
 
@@ -1961,8 +1961,7 @@ aot_deinstantiate(AOTModuleInstance *module_inst, bool is_sub_inst)
 }
 
 AOTFunctionInstance *
-aot_lookup_function(const AOTModuleInstance *module_inst, const char *name,
-                    const char *signature)
+aot_lookup_function(const AOTModuleInstance *module_inst, const char *name)
 {
     uint32 i;
     AOTFunctionInstance *export_funcs =
@@ -1971,7 +1970,6 @@ aot_lookup_function(const AOTModuleInstance *module_inst, const char *name,
     for (i = 0; i < module_inst->export_func_count; i++)
         if (!strcmp(export_funcs[i].func_name, name))
             return &export_funcs[i];
-    (void)signature;
     return NULL;
 }
 
@@ -2556,21 +2554,18 @@ aot_module_malloc_internal(AOTModuleInstance *module_inst,
              && module->free_func_index != (uint32)-1) {
         AOTFunctionInstance *malloc_func, *retain_func = NULL;
         char *malloc_func_name;
-        char *malloc_func_sig;
 
         if (module->retain_func_index != (uint32)-1) {
             malloc_func_name = "__new";
-            malloc_func_sig = "(ii)i";
-            retain_func = aot_lookup_function(module_inst, "__retain", "(i)i");
+            retain_func = aot_lookup_function(module_inst, "__retain");
             if (!retain_func)
-                retain_func = aot_lookup_function(module_inst, "__pin", "(i)i");
+                retain_func = aot_lookup_function(module_inst, "__pin");
             bh_assert(retain_func);
         }
         else {
             malloc_func_name = "malloc";
-            malloc_func_sig = "(i)i";
         }
-        malloc_func = aot_lookup_function(module_inst, malloc_func_name, malloc_func_sig);
+        malloc_func = aot_lookup_function(module_inst, malloc_func_name);
 
         if (!malloc_func
             || !execute_malloc_function(module_inst, exec_env, malloc_func,
@@ -2680,9 +2675,9 @@ aot_module_free_internal(AOTModuleInstance *module_inst, WASMExecEnv *exec_env,
             else {
                 free_func_name = "free";
             }
-            free_func = aot_lookup_function(module_inst, free_func_name, "(i)i");
+            free_func = aot_lookup_function(module_inst, free_func_name);
             if (!free_func && module->retain_func_index != (uint32)-1)
-                free_func = aot_lookup_function(module_inst, "__unpin", "(i)i");
+                free_func = aot_lookup_function(module_inst, "__unpin");
 
             if (free_func)
                 execute_free_function(module_inst, exec_env, free_func, ptr);
