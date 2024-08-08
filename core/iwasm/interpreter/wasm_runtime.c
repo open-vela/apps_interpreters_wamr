@@ -680,7 +680,7 @@ functions_instantiate(const WASMModule *module, WASMModuleInstance *module_inst,
             if (function->import_module_inst) {
                 function->import_func_inst =
                     wasm_lookup_function(function->import_module_inst,
-                                         import->u.function.field_name, NULL);
+                                         import->u.function.field_name);
             }
         }
 #endif /* WASM_ENABLE_MULTI_MODULE */
@@ -1358,7 +1358,7 @@ lookup_post_instantiate_func(WASMModuleInstance *module_inst,
     WASMFunctionInstance *func;
     WASMFuncType *func_type;
 
-    if (!(func = wasm_lookup_function(module_inst, func_name, NULL)))
+    if (!(func = wasm_lookup_function(module_inst, func_name)))
         /* Not found */
         return NULL;
 
@@ -3198,14 +3198,12 @@ wasm_deinstantiate(WASMModuleInstance *module_inst, bool is_sub_inst)
 }
 
 WASMFunctionInstance *
-wasm_lookup_function(const WASMModuleInstance *module_inst, const char *name,
-                     const char *signature)
+wasm_lookup_function(const WASMModuleInstance *module_inst, const char *name)
 {
     uint32 i;
     for (i = 0; i < module_inst->export_func_count; i++)
         if (!strcmp(module_inst->export_functions[i].name, name))
             return module_inst->export_functions[i].function;
-    (void)signature;
     return NULL;
 }
 
