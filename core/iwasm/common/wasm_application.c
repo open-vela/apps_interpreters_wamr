@@ -152,10 +152,10 @@ execute_main(WASMModuleInstanceCommon *module_inst, int32 argc, char *argv[])
     }
 #endif /* end of WASM_ENABLE_LIBC_WASI */
 
-    if (!(func = wasm_runtime_lookup_function(module_inst, "main", NULL))
+    if (!(func = wasm_runtime_lookup_function(module_inst, "main"))
         && !(func =
-                 wasm_runtime_lookup_function(module_inst, "__main_argc_argv", NULL))
-        && !(func = wasm_runtime_lookup_function(module_inst, "_main", NULL))) {
+                 wasm_runtime_lookup_function(module_inst, "__main_argc_argv"))
+        && !(func = wasm_runtime_lookup_function(module_inst, "_main"))) {
 #if WASM_ENABLE_LIBC_WASI != 0
         wasm_runtime_set_exception(
             module_inst, "lookup the entry point symbol (like _start, main, "
@@ -374,7 +374,7 @@ execute_func(WASMModuleInstanceCommon *module_inst, const char *name,
     bh_assert(argc >= 0);
     LOG_DEBUG("call a function \"%s\" with %d arguments", name, argc);
 
-    if (!(target_func = wasm_runtime_lookup_function(module_inst, name, NULL))) {
+    if (!(target_func = wasm_runtime_lookup_function(module_inst, name))) {
         snprintf(buf, sizeof(buf), "lookup function %s failed", name);
         wasm_runtime_set_exception(module_inst, buf);
         goto fail;
@@ -631,7 +631,7 @@ execute_func(WASMModuleInstanceCommon *module_inst, const char *name,
                                                  module_inst, NULL, 0))) {
                             goto fail;
                         }
-                        wasm_runtime_push_local_object_ref(exec_env, local_ref);
+                        wasm_runtime_push_local_obj_ref(exec_env, local_ref);
                         local_ref->val = (WASMObjectRef)gc_obj;
                         num_local_ref_pushed++;
                         PUT_REF_TO_ADDR(argv1 + p, gc_obj);
@@ -654,7 +654,7 @@ execute_func(WASMModuleInstanceCommon *module_inst, const char *name,
                                                  module_inst, NULL, 0))) {
                             goto fail;
                         }
-                        wasm_runtime_push_local_object_ref(exec_env, local_ref);
+                        wasm_runtime_push_local_obj_ref(exec_env, local_ref);
                         local_ref->val = (WASMObjectRef)gc_obj;
                         num_local_ref_pushed++;
                         PUT_REF_TO_ADDR(argv1 + p, gc_obj);
@@ -878,7 +878,7 @@ execute_func(WASMModuleInstanceCommon *module_inst, const char *name,
 
 #if WASM_ENABLE_GC != 0
     for (j = 0; j < num_local_ref_pushed; j++) {
-        local_ref = wasm_runtime_pop_local_object_ref(exec_env);
+        local_ref = wasm_runtime_pop_local_obj_ref(exec_env);
         wasm_runtime_free(local_ref);
     }
 #endif
@@ -892,7 +892,7 @@ fail:
 
 #if WASM_ENABLE_GC != 0
     for (j = 0; j < num_local_ref_pushed; j++) {
-        local_ref = wasm_runtime_pop_local_object_ref(exec_env);
+        local_ref = wasm_runtime_pop_local_obj_ref(exec_env);
         wasm_runtime_free(local_ref);
     }
 #endif

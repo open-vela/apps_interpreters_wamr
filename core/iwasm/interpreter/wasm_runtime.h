@@ -541,8 +541,7 @@ wasm_set_running_mode(WASMModuleInstance *module_inst,
                       RunningMode running_mode);
 
 WASMFunctionInstance *
-wasm_lookup_function(const WASMModuleInstance *module_inst, const char *name,
-                     const char *signature);
+wasm_lookup_function(const WASMModuleInstance *module_inst, const char *name);
 
 #if WASM_ENABLE_MULTI_MODULE != 0
 WASMGlobalInstance *
