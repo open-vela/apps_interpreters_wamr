@@ -4485,9 +4485,13 @@ fail:
  * Implementation of wasm_runtime_invoke_native()
  */
 
-/* The invoke native implementation on ARM platform with VFP co-processor */
+/**
+ * The invoke native implementation on ARM platform with VFP co-processor,
+ * RISCV32 platform with/without FPU/DPFPU and ARC platform.
+ */
 #if defined(BUILD_TARGET_ARM_VFP) || defined(BUILD_TARGET_THUMB_VFP) \
     || defined(BUILD_TARGET_RISCV32_ILP32D)                          \
+    || defined(BUILD_TARGET_RISCV32_ILP32F)                          \
     || defined(BUILD_TARGET_RISCV32_ILP32) || defined(BUILD_TARGET_ARC)
 typedef void (*GenericFunctionPointer)();
 void
@@ -4588,7 +4592,8 @@ wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
 #endif
                     n_ints += 2;
                 }
-#if defined(BUILD_TARGET_RISCV32_ILP32) \
+#if defined(BUILD_TARGET_RISCV32_ILP32)     \
+    || defined(BUILD_TARGET_RISCV32_ILP32F) \
     || defined(BUILD_TARGET_RISCV32_ILP32D) || defined(BUILD_TARGET_ARC)
                 /* part in register, part in stack */
                 else if (n_ints == MAX_REG_INTS - 1) {
@@ -4610,19 +4615,32 @@ wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
             case VALUE_TYPE_F32:
                 if (n_fps < MAX_REG_FLOATS)
                     n_fps++;
+#if defined(BUILD_TARGET_RISCV32_ILP32F)
+                else if (n_ints < MAX_REG_INTS) {
+                    n_ints++;
+                }
+#endif
                 else
                     n_stacks++;
                 break;
             case VALUE_TYPE_F64:
+#if defined(BUILD_TARGET_RISCV32_ILP32) \
+    || defined(BUILD_TARGET_RISCV32_ILP32F) || defined(BUILD_TARGET_ARC)
+                if (n_ints < MAX_REG_INTS - 1) {
+                    n_ints += 2;
+                }
+                else if (n_ints == MAX_REG_INTS - 1) {
+                    n_ints++;
+                    n_stacks++;
+                }
+#endif
+#if defined(BUILD_TARGET_ARM_VFP) || defined(BUILD_TARGET_THUMB_VFP)
                 if (n_fps < MAX_REG_FLOATS - 1) {
-#if !defined(BUILD_TARGET_RISCV32_ILP32) && !defined(BUILD_TARGET_ARC)
                     /* 64-bit data must be 8 bytes aligned in arm */
                     if (n_fps & 1)
                         n_fps++;
-#endif
                     n_fps += 2;
                 }
-#if defined(BUILD_TARGET_RISCV32_ILP32) || defined(BUILD_TARGET_ARC)
                 else if (n_fps == MAX_REG_FLOATS - 1) {
                     n_fps++;
                     n_stacks++;
@@ -4654,7 +4672,7 @@ wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
                     /* use int regs firstly if available */
                     if (n_ints & 1)
                         n_ints++;
-                    ints += 2;
+                    n_ints += 2;
                 }
                 else {
                     /* 64-bit data in stack must be 8 bytes aligned in riscv32
@@ -4678,7 +4696,8 @@ wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
             n_stacks++;
     }
 
-#if defined(BUILD_TARGET_ARM_VFP) || defined(BUILD_TARGET_THUMB_VFP)
+#if defined(BUILD_TARGET_ARM_VFP) || defined(BUILD_TARGET_THUMB_VFP) \
+    || defined(BUILD_TARGET_RISCV32_ILP32F)
     argc1 = MAX_REG_INTS + MAX_REG_FLOATS + n_stacks;
 #elif defined(BUILD_TARGET_RISCV32_ILP32) || defined(BUILD_TARGET_ARC)
     argc1 = MAX_REG_INTS + n_stacks;
@@ -4695,7 +4714,8 @@ wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
     }
 
     ints = argv1;
-#if defined(BUILD_TARGET_ARM_VFP) || defined(BUILD_TARGET_THUMB_VFP)
+#if defined(BUILD_TARGET_ARM_VFP) || defined(BUILD_TARGET_THUMB_VFP) \
+    || defined(BUILD_TARGET_RISCV32_ILP32F)
     fps = ints + MAX_REG_INTS;
     stacks = fps + MAX_REG_FLOATS;
 #elif defined(BUILD_TARGET_RISCV32_ILP32) || defined(BUILD_TARGET_ARC)
@@ -4785,7 +4805,8 @@ wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
                     ints[n_ints++] = *argv_src++;
                     ints[n_ints++] = *argv_src++;
                 }
-#if defined(BUILD_TARGET_RISCV32_ILP32) \
+#if defined(BUILD_TARGET_RISCV32_ILP32)     \
+    || defined(BUILD_TARGET_RISCV32_ILP32F) \
     || defined(BUILD_TARGET_RISCV32_ILP32D) || defined(BUILD_TARGET_ARC)
                 else if (n_ints == MAX_REG_INTS - 1) {
                     ints[n_ints++] = *argv_src++;
@@ -4809,22 +4830,36 @@ wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
             {
                 if (n_fps < MAX_REG_FLOATS)
                     *(float32 *)&fps[n_fps++] = *(float32 *)argv_src++;
+#if defined(BUILD_TARGET_RISCV32_ILP32F)
+                else if (n_ints < MAX_REG_INTS) {
+                    ints[n_ints++] = *argv_src++;
+                }
+#endif
                 else
                     *(float32 *)&stacks[n_stacks++] = *(float32 *)argv_src++;
                 break;
             }
             case VALUE_TYPE_F64:
             {
+#if defined(BUILD_TARGET_RISCV32_ILP32) \
+    || defined(BUILD_TARGET_RISCV32_ILP32F) || defined(BUILD_TARGET_ARC)
+                if (n_ints < MAX_REG_INTS - 1) {
+                    ints[n_ints++] = *argv_src++;
+                    ints[n_ints++] = *argv_src++;
+                }
+                else if (n_ints == MAX_REG_INTS - 1) {
+                    ints[n_ints++] = *argv_src++;
+                    stacks[n_stacks++] = *argv_src++;
+                }
+#endif
+#if defined(BUILD_TARGET_ARM_VFP) || defined(BUILD_TARGET_THUMB_VFP)
                 if (n_fps < MAX_REG_FLOATS - 1) {
-#if !defined(BUILD_TARGET_RISCV32_ILP32) && !defined(BUILD_TARGET_ARC)
                     /* 64-bit data must be 8 bytes aligned in arm */
                     if (n_fps & 1)
                         n_fps++;
-#endif
                     fps[n_fps++] = *argv_src++;
                     fps[n_fps++] = *argv_src++;
                 }
-#if defined(BUILD_TARGET_RISCV32_ILP32) || defined(BUILD_TARGET_ARC)
                 else if (n_fps == MAX_REG_FLOATS - 1) {
                     fps[n_fps++] = *argv_src++;
                     stacks[n_stacks++] = *argv_src++;
@@ -5016,6 +5051,7 @@ fail:
 #endif /* end of defined(BUILD_TARGET_ARM_VFP)    \
           || defined(BUILD_TARGET_THUMB_VFP)      \
           || defined(BUILD_TARGET_RISCV32_ILP32D) \
+          || defined(BUILD_TARGET_RISCV32_ILP32F) \
           || defined(BUILD_TARGET_RISCV32_ILP32)  \
           || defined(BUILD_TARGET_ARC) */
 
