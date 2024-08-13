@@ -683,9 +683,12 @@ calloc_wrapper(wasm_exec_env_t exec_env, uint32 nmemb, uint32 size)
 static uint32
 realloc_wrapper(wasm_exec_env_t exec_env, uint32 ptr, uint32 new_size)
 {
+    uint64 ret_offset = 0;
     wasm_module_inst_t module_inst = get_module_inst(exec_env);
 
-    return wasm_runtime_module_realloc(module_inst, ptr, new_size, NULL);
+    ret_offset = wasm_runtime_module_realloc(module_inst, ptr, new_size, NULL);
+    bh_assert(ret_offset < UINT32_MAX);
+    return (uint32)ret_offset;
 }
 
 static void
