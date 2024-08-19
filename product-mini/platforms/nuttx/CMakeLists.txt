@@ -199,5 +199,6 @@ include(${WAMR_ROOT_DIR}/build-scripts/runtime_lib.cmake)
 set(WAMR_SOURCES ${WAMR_RUNTIME_LIB_SOURCE})
 set(WAMR_CFLAGS -Wno-strict-prototypes -Wno-shadow -Wno-unused-variable
                 -Wno-int-conversion -Wno-implicit-function-declaration)
+string(REPLACE "-std=gnu99" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
 get_directory_property(WAMR_INCDIRS INCLUDE_DIRECTORIES)
 get_directory_property(WAMR_DEFINITIONS COMPILE_DEFINITIONS)
