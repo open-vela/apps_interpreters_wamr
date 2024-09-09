@@ -189,6 +189,8 @@ if(CONFIG_INTERPRETERS_WAMR_LIB_PTHREAD)
   set(WAMR_BUILD_LIB_PTHREAD 1)
 endif()
 
+add_definitions(-DWASM_ENABLE_MODULE_INST_CONTEXT=1)
+
 set(WAMR_ROOT_DIR ${CMAKE_CURRENT_LIST_DIR}/../../..)
 
 # enable WAMR build system
