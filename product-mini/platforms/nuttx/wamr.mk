@@ -5,7 +5,7 @@ CORE_ROOT := wamr/core
 IWASM_ROOT := wamr/core/iwasm
 SHARED_ROOT := wamr/core/shared
 
-TS2WASM_RUNTIMELIB_ROOT := $(APPDIR)/frameworks/typescript/ts2wasm/runtime-library
+TS2WASM_RUNTIMELIB_ROOT := $(APPDIR)/frameworks/runtimes/typescript/ts2wasm/runtime-library
 QUICKJS_ROOT := ../quickjs/quickjs
 DYNTYPE_ROOT := ${TS2WASM_RUNTIMELIB_ROOT}/libdyntype
 STDLIB_ROOT := ${TS2WASM_RUNTIMELIB_ROOT}/stdlib
