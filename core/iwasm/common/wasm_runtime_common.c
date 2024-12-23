@@ -801,6 +801,14 @@ wasm_runtime_full_init(RuntimeInitArgs *init_args)
         runtime_ref_count++;
     }
 
+    /* FIXME: Implement real multi-instance support instead of
+     * using global variables here
+     */
+
+#if WASM_ENABLE_GC != 0
+    gc_heap_size_default = init_args->gc_heap_size;
+#endif
+
 #if defined(OS_THREAD_MUTEX_INITIALIZER)
     os_mutex_unlock(&runtime_lock);
 #endif
