@@ -5,24 +5,6 @@ CORE_ROOT := wamr/core
 IWASM_ROOT := wamr/core/iwasm
 SHARED_ROOT := wamr/core/shared
 
-TS2WASM_RUNTIMELIB_ROOT := $(APPDIR)/frameworks/runtimes/typescript/ts2wasm/runtime-library
-QUICKJS_ROOT := ../quickjs/quickjs
-DYNTYPE_ROOT := ${TS2WASM_RUNTIMELIB_ROOT}/libdyntype
-STDLIB_ROOT := ${TS2WASM_RUNTIMELIB_ROOT}/stdlib
-STRUCT_DYN_ROOT := ${TS2WASM_RUNTIMELIB_ROOT}/struct-dyn
-UTILS_ROOT := ${TS2WASM_RUNTIMELIB_ROOT}/utils
-
-ifeq ($(CONFIG_INTERPRETERS_WAMR_USE_SIMPLE_LIBDYNTYPE), y)
-CFLAGS += -DUSE_SIMPLE_LIBDYNTYPE=1
-LIBDYNTYPE_DYNAMIC_DIR := ${DYNTYPE_ROOT}/dynamic-simple
-else
-LIBDYNTYPE_DYNAMIC_DIR := ${DYNTYPE_ROOT}/dynamic-qjs
-endif
-LIBDYNTYPE_EXTREF_DIR := ${DYNTYPE_ROOT}/extref
-STRUCT_INDIRECT_DIR := ${TS2WASM_RUNTIMELIB_ROOT}/struct-indirect
-STRINGREF_DIR := ${TS2WASM_RUNTIMELIB_ROOT}/stringref
-
-
 ifeq ($(CONFIG_ARCH_ARMV6M),y)
 WAMR_BUILD_TARGET := THUMBV6M
 else ifeq ($(CONFIG_ARCH_ARMV7A),y)
@@ -331,56 +313,8 @@ endif
 
 ifeq ($(CONFIG_INTERPRETERS_WAMR_GC),y)
 CFLAGS += -DWASM_ENABLE_GC=1
-CFLAGS += -DWASM_ENABLE_REF_TYPES=1
-CFLAGS += -DWASM_ENABLE_GC_BINARYEN=1
-CFLAGS += -DWASM_ENABLE_SPEC=0
-CFLAGS += -DWASM_ENABLE_STRINGREF=1
-
+CSRCS += gc_common.c gc_type.c gc_object.c
 VPATH += $(IWASM_ROOT)/common/gc
-VPATH += ${DYNTYPE_ROOT}
-VPATH += ${STDLIB_ROOT}
-VPATH += ${STRUCT_DYN_ROOT}
-VPATH += ${UTILS_ROOT}
-VPATH += ${TS2WASM_RUNTIMELIB_ROOT}
-VPATH += ${LIBDYNTYPE_DYNAMIC_DIR}
-VPATH += ${STRUCT_INDIRECT_DIR}
-VPATH += ${LIBDYNTYPE_EXTREF_DIR}
-VPATH += ${STRINGREF_DIR}
-
-CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/context.c \
-         ${LIBDYNTYPE_DYNAMIC_DIR}/fallback.c \
-         ${LIBDYNTYPE_DYNAMIC_DIR}/object.c \
-         ${LIBDYNTYPE_EXTREF_DIR}/extref.c \
-         ${DYNTYPE_ROOT}/libdyntype.c \
-         ${DYNTYPE_ROOT}/lib_dyntype_wrapper.c \
-         ${STDLIB_ROOT}/lib_array.c \
-         ${STDLIB_ROOT}/lib_console.c \
-         ${STDLIB_ROOT}/lib_timer.c \
-         ${UTILS_ROOT}/type_utils.c \
-         ${UTILS_ROOT}/wamr_utils.c \
-         ${UTILS_ROOT}/object_utils.c \
-         ${STRUCT_INDIRECT_DIR}/lib_struct_indirect.c \
-         $(IWASM_ROOT)/common/gc/gc_type.c  \
-         $(IWASM_ROOT)/common/gc/gc_object.c  \
-         $(IWASM_ROOT)/common/gc/gc_common.c
-
-override MAINSRC = ${TS2WASM_RUNTIMELIB_ROOT}/main.c
-override PROGNAME  = iwasm
-export MAINSRC
-export PROGNAME
-
-ifeq ($(CONFIG_INTERPRETERS_WAMR_USE_SIMPLE_LIBDYNTYPE), y)
-CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value/dyn_value.c
-CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value/class/date.c
-CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value/class/dyn_class.c
-CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value/class/object.c
-CSRCS += ${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value/class/string.c
-CSRCS += ${STRINGREF_DIR}/stringref_simple.c
-CFLAGS += -I${LIBDYNTYPE_DYNAMIC_DIR}/dyn-value
-else
-CSRCS += ${STRINGREF_DIR}/stringref_qjs.c
-endif
-
 else
 CFLAGS += -DWASM_ENABLE_GC=0
 # CFLAGS += -DWASM_ENABLE_REF_TYPES = 0
@@ -447,8 +381,6 @@ else
 CFLAGS += -DWASM_ENABLE_REF_TYPES=0
 endif
 
-
-
 CFLAGS += -Wno-strict-prototypes -Wno-shadow -Wno-unused-variable
 CFLAGS += -Wno-int-conversion -Wno-implicit-function-declaration
 
@@ -462,16 +394,7 @@ CFLAGS += -I${CORE_ROOT} \
           -I${SHARED_ROOT}/utils \
           -I${SHARED_ROOT}/utils/uncommon \
           -I${SHARED_ROOT}/mem-alloc \
-          -I${SHARED_ROOT}/platform/nuttx \
-          -I${IWASM_ROOT}/common/gc \
-          -I${IWASM_ROOT}/common/gc/stringref \
-          -I${QUICKJS_ROOT} \
-          -I${DYNTYPE_ROOT} \
-          -I${STDLIB_ROOT} \
-          -I${STRUCT_DYN_ROOT} \
-          -I${UTILS_ROOT} \
-          -I${LIBDYNTYPE_DYNAMIC_DIR} \
-          -I${STRUCT_INDIRECT_DIR}
+          -I${SHARED_ROOT}/platform/nuttx
 
 ifeq ($(WAMR_BUILD_INTERP), 1)
 CFLAGS += -I$(IWASM_ROOT)/interpreter
@@ -523,4 +446,3 @@ VPATH += $(IWASM_ROOT)/libraries/lib-pthread
 VPATH += $(IWASM_ROOT)/common/arch
 VPATH += $(IWASM_ROOT)/aot
 VPATH += $(IWASM_ROOT)/aot/arch
-VPATH += ${QUICKJS_ROOT}
