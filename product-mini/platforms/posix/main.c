@@ -561,7 +561,7 @@ timeout_thread(void *vp)
 }
 #endif
 
-int
+__attribute__((weak)) int
 main(int argc, char *argv[])
 {
     int32 ret = -1;
