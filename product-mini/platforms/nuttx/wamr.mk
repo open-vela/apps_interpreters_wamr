@@ -400,6 +400,22 @@ CFLAGS += -I${CORE_ROOT} \
           -I${IWASM_ROOT}/common/gc/stringref \
           -I${IWASM_ROOT}/common/gc
 
+ifeq ($(CONFIG_INTERPRETERS_WAMR_UNIT_TEST),y)
+CXXFLAGS += -I${IWASM_ROOT}/include \
+            -I${IWASM_ROOT}/interpreter \
+            -I${IWASM_ROOT}/common \
+            -I${SHARED_ROOT}/platform/include \
+            -I${SHARED_ROOT}/utils \
+            -I${SHARED_ROOT}/utils/uncommon \
+            -I${SHARED_ROOT}/platform/nuttx \
+            -I${APPDIR}/interpreters/wamr/wamr/tests/unit \
+            -I${APPDIR}/interpreters/wamr/wamr/tests/unit/common
+# Since the test files are C++ files, we need to use CXXFLAGS to contain the missing definitions
+CXXFLAGS += -DWASM_DISABLE_WAKEUP_BLOCKING_OP=0
+CXXFLAGS += -DWASM_ENABLE_MODULE_INST_CONTEXT=0
+CXXFLAGS += -Wno-shadow -Wno-sign-compare
+endif
+
 ifeq ($(WAMR_BUILD_INTERP), 1)
 CFLAGS += -I$(IWASM_ROOT)/interpreter
 endif
