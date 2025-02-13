@@ -223,3 +223,10 @@ set(WAMR_CFLAGS -Wno-strict-prototypes -Wno-shadow -Wno-unused-variable
 string(REPLACE "-std=gnu99" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
 get_directory_property(WAMR_INCDIRS INCLUDE_DIRECTORIES)
 get_directory_property(WAMR_DEFINITIONS COMPILE_DEFINITIONS)
+
+if(CONFIG_INTERPRETERS_WAMR_UNIT_TEST)
+  list(APPEND WAMR_INCDIRS
+       ${WAMR_ROOT_DIR}/tests/unit
+       ${WAMR_ROOT_DIR}/tests/unit/common)
+  set(WAMR_UNIT_TEST_FLAGS -Wno-shadow -Wno-sign-compare)
+endif()
