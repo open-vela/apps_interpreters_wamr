@@ -313,6 +313,8 @@ endif
 
 ifeq ($(CONFIG_INTERPRETERS_WAMR_GC),y)
 CFLAGS += -DWASM_ENABLE_GC=1
+CFLAGS += -DWASM_ENABLE_GC_BINARYEN=1
+CFLAGS += -DWASM_ENABLE_STRINGREF=1
 CSRCS += gc_common.c gc_type.c gc_object.c
 VPATH += $(IWASM_ROOT)/common/gc
 else
@@ -394,7 +396,9 @@ CFLAGS += -I${CORE_ROOT} \
           -I${SHARED_ROOT}/utils \
           -I${SHARED_ROOT}/utils/uncommon \
           -I${SHARED_ROOT}/mem-alloc \
-          -I${SHARED_ROOT}/platform/nuttx
+          -I${SHARED_ROOT}/platform/nuttx \
+          -I${IWASM_ROOT}/common/gc/stringref \
+          -I${IWASM_ROOT}/common/gc
 
 ifeq ($(WAMR_BUILD_INTERP), 1)
 CFLAGS += -I$(IWASM_ROOT)/interpreter
