@@ -601,6 +601,7 @@ main(int argc, char *argv[])
 #endif
     bool is_repl_mode = false;
     bool is_mapped_file = true;
+    bool is_xip_file = false;
 #if WASM_CONFIGURABLE_BOUNDS_CHECKS != 0
     bool disable_bounds_checks = false;
 #endif
@@ -911,8 +912,10 @@ main(int argc, char *argv[])
 
     /* If mmap file failed, then read it into buffer, and if it's not a XIP file
      */
-    if (!wasm_runtime_is_xip_file(wasm_file_buf, wasm_file_size)
-        || !is_mapped_file) {
+#if WASM_ENABLE_AOT != 0
+    is_xip_file = wasm_runtime_is_xip_file(wasm_file_buf, wasm_file_size);
+#endif
+    if (!is_xip_file || !is_mapped_file) {
 
         /* Unmap file it mapped already */
         if (wasm_file_buf)
