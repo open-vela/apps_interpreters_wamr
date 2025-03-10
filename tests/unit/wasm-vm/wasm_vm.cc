@@ -66,11 +66,14 @@ class WasmVMTest : public testing::Test
 TEST_F(WasmVMTest, Test_app1)
 {
     uint32 argv[10];
+    unsigned char *app1;
 
-    ASSERT_TRUE(app1_wasm != NULL);
+    app1 = (unsigned char *)malloc(sizeof(app1_wasm));
+    ASSERT_TRUE(app1 != NULL);
+    memcpy(app1, app1_wasm, sizeof(app1_wasm));
 
     /* Load module */
-    module = wasm_runtime_load(app1_wasm, sizeof(app1_wasm), error_buf,
+    module = wasm_runtime_load(app1, sizeof(app1_wasm), error_buf,
                                sizeof(error_buf));
     if (module == nullptr) {
         printf("error: %s\n", error_buf);
@@ -147,14 +150,20 @@ TEST_F(WasmVMTest, Test_app1)
     wasm_runtime_deinstantiate(module_inst);
     wasm_runtime_unload(module);
     wasm_runtime_destroy_exec_env(exec_env);
+    free(app1);
 }
 
 TEST_F(WasmVMTest, Test_app2)
 {
     uint32 argv[10];
+    unsigned char *app2;
+
+    app2 = (unsigned char *)malloc(sizeof(app2_wasm));
+    ASSERT_TRUE(app2 != NULL);
+    memcpy(app2, app2_wasm, sizeof(app2_wasm));
 
     /* Load module */
-    module = wasm_runtime_load(app2_wasm, sizeof(app2_wasm), error_buf,
+    module = wasm_runtime_load(app2, sizeof(app2_wasm), error_buf,
                                sizeof(error_buf));
 
     ASSERT_TRUE(module != NULL);
@@ -412,14 +421,20 @@ TEST_F(WasmVMTest, Test_app2)
     wasm_runtime_deinstantiate(module_inst);
     wasm_runtime_unload(module);
     wasm_runtime_destroy_exec_env(exec_env);
+    free(app2);
 }
 
 TEST_F(WasmVMTest, Test_app3)
 {
     uint32 argv[10];
+    unsigned char *app3;
+
+    app3 = (unsigned char *)malloc(sizeof(app3_wasm));
+    ASSERT_TRUE(app3 != NULL);
+    memcpy(app3, app3_wasm, sizeof(app3_wasm));
 
     /* Load module */
-    module = wasm_runtime_load(app3_wasm, sizeof(app3_wasm), error_buf,
+    module = wasm_runtime_load(app3, sizeof(app3_wasm), error_buf,
                                sizeof(error_buf));
 
     ASSERT_TRUE(module != NULL);
@@ -485,6 +500,7 @@ TEST_F(WasmVMTest, Test_app3)
     wasm_runtime_deinstantiate(module_inst);
     wasm_runtime_unload(module);
     wasm_runtime_destroy_exec_env(exec_env);
+    free(app3);
 }
 
 #if WASM_ENABLE_MULTI_MODULE != 0
