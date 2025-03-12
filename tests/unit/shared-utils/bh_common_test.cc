@@ -33,8 +33,11 @@ class bh_common_test_suite : public testing::Test
 
 TEST_F(bh_common_test_suite, wa_strdup)
 {
+    char *s;
     EXPECT_EQ(nullptr, wa_strdup(nullptr));
-    EXPECT_NE(nullptr, wa_strdup(STR_TEST));
+    s = wa_strdup(STR_TEST);
+    EXPECT_NE(nullptr, s);
+    WA_FREE(s);
 }
 
 TEST_F(bh_common_test_suite, b_strcpy_s)
@@ -63,7 +66,10 @@ TEST_F(bh_common_test_suite, b_strcat_s)
 
 TEST_F(bh_common_test_suite, bh_strdup)
 {
-    EXPECT_NE(nullptr, bh_strdup(STR_TEST));
+    char *s;
+    s = bh_strdup(STR_TEST);
+    EXPECT_NE(nullptr, s);
+    BH_FREE(s);
     EXPECT_EQ(nullptr, bh_strdup(nullptr));
 }
 
