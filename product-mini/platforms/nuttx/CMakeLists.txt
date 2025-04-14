@@ -224,6 +224,14 @@ string(REPLACE "-std=gnu99" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
 get_directory_property(WAMR_INCDIRS INCLUDE_DIRECTORIES)
 get_directory_property(WAMR_DEFINITIONS COMPILE_DEFINITIONS)
 
+set(FILES_TO_DISABLE_UBSAN
+${WAMR_ROOT_DIR}/core/iwasm/interpreter/wasm_interp_fast.c
+${WAMR_ROOT_DIR}/core/iwasm/interpreter/wasm_loader.c)
+
+set_source_files_properties(
+  ${FILES_TO_DISABLE_UBSAN}
+  PROPERTIES COMPILE_OPTIONS "-fno-sanitize=alignment")
+
 if(CONFIG_INTERPRETERS_WAMR_UNIT_TEST)
   list(APPEND WAMR_INCDIRS
        ${WAMR_ROOT_DIR}/tests/unit
