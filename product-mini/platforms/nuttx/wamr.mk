@@ -156,6 +156,7 @@ CFLAGS += -DWASM_ENABLE_FAST_INTERP=1
 CFLAGS += -DWASM_ENABLE_INTERP=1
 CSRCS += wasm_interp_fast.c
 CSRCS += wasm_runtime.c
+$(IWASM_ROOT)/interpreter/wasm_interp_fast.c_CFLAGS = -fno-sanitize=alignment
 else
 CFLAGS += -DWASM_ENABLE_FAST_INTERP=0
 endif
@@ -173,6 +174,7 @@ CSRCS += wasm_mini_loader.c
 else
 CFLAGS += -DWASM_ENABLE_MINI_LOADER=0
 CSRCS += wasm_loader.c
+$(IWASM_ROOT)/interpreter/wasm_loader.c_CFLAGS = -fno-sanitize=alignment
 endif
 endif
 
