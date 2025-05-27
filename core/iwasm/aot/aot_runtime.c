@@ -3332,6 +3332,9 @@ aot_table_init(AOTModuleInstance *module_inst, uint32 tbl_idx,
         /* table segment isn't dropped */
         tbl_seg_init_values = tbl_seg->init_values;
         tbl_seg_len = tbl_seg->value_count;
+    } else {
+        aot_set_exception_with_id(module_inst, EXCE_UNINITIALIZED_ELEMENT);
+        return;
     }
 
     if (offset_len_out_of_bounds(src_offset, length, tbl_seg_len)
