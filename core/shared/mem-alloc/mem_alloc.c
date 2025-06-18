@@ -123,9 +123,15 @@ mem_allocator_set_gc_finalizer(mem_allocator_t allocator, void *obj,
 }
 
 void
-mem_allocator_unset_gc_finalizer(mem_allocator_t allocator, void *obj)
+mem_allocator_unset_gc_finalizer(mem_allocator_t allocator, void *obj, bool is_external)
 {
-    gc_unset_finalizer((gc_handle_t)allocator, (gc_object_t)obj);
+    if (is_external) {
+        gc_unset_finalizer_external((gc_handle_t)allocator, (gc_object_t)obj);
+    }
+    else {
+        gc_unset_finalizer((gc_handle_t)allocator, (gc_object_t)obj);
+    }
+
 }
 
 #if WASM_ENABLE_GC_PERF_PROFILING != 0

@@ -78,7 +78,7 @@ mem_allocator_set_gc_finalizer(mem_allocator_t allocator, void *obj,
                                gc_finalizer_t cb, void *data);
 
 void
-mem_allocator_unset_gc_finalizer(mem_allocator_t allocator, void *obj);
+mem_allocator_unset_gc_finalizer(mem_allocator_t allocator, void *obj, bool is_external);
 
 #if WASM_ENABLE_GC_PERF_PROFILING != 0
 void

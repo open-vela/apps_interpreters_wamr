@@ -1166,4 +1166,31 @@ gc_unset_finalizer(gc_handle_t handle, gc_object_t obj)
 
     gct_vm_set_extra_info_flag(obj, false);
 }
+
+void
+gc_unset_finalizer_external(gc_handle_t handle, gc_object_t obj)
+{
+    gc_size_t index;
+    gc_heap_t *vheap = (gc_heap_t *)handle;
+    extra_info_node_t *node;
+
+    os_mutex_lock(&vheap->lock);
+    node = gc_search_extra_info_node(vheap, obj, &index);
+
+    if (!node) {
+        os_mutex_unlock(&vheap->lock);
+        return;
+    }
+
+    BH_FREE(node);
+    bh_memmove_s(
+        vheap->extra_info_nodes + index,
+        (vheap->extra_info_node_capacity - index) * sizeof(extra_info_node_t *),
+        vheap->extra_info_nodes + index + 1,
+        (vheap->extra_info_node_cnt - index - 1) * sizeof(extra_info_node_t *));
+    vheap->extra_info_node_cnt -= 1;
+    os_mutex_unlock(&vheap->lock);
+
+    gct_vm_set_extra_info_flag(obj, false);
+}
 #endif
