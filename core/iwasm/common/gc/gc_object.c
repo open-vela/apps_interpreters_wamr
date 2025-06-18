@@ -814,7 +814,7 @@ void
 wasm_obj_unset_gc_finalizer(wasm_exec_env_t exec_env, void *obj)
 {
     void *heap_handle = get_gc_heap_handle(exec_env);
-    mem_allocator_unset_gc_finalizer(heap_handle, obj);
+    mem_allocator_unset_gc_finalizer(heap_handle, obj, true);
 }
 
 #if WASM_ENABLE_STRINGREF != 0
