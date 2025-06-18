@@ -288,6 +288,9 @@ gc_set_finalizer(gc_handle_t handle, gc_object_t obj, gc_finalizer_t cb,
 void
 gc_unset_finalizer(gc_handle_t handle, gc_object_t obj);
 
+void
+gc_unset_finalizer_external(gc_handle_t handle, gc_object_t obj);
+
 #if WASM_ENABLE_THREAD_MGR == 0
 bool
 wasm_runtime_traverse_gc_rootset(void *exec_env, void *heap);
