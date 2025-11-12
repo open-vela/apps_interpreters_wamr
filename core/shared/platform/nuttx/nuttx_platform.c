@@ -117,7 +117,7 @@ os_dcache_flush()
     && defined(CONFIG_ARCH_HAVE_TEXT_HEAP_SEPARATE_DATA_ADDRESS)
     up_textheap_data_sync();
 #endif
-#ifndef CONFIG_BUILD_KERNEL
+#ifdef CONFIG_BUILD_FLAT
     up_flush_dcache_all();
 #endif
 }
@@ -125,7 +125,7 @@ os_dcache_flush()
 void
 os_icache_flush(void *start, size_t len)
 {
-#ifndef CONFIG_BUILD_KERNEL
+#ifdef CONFIG_BUILD_FLAT
     up_invalidate_icache((uintptr_t)start, (uintptr_t)start + len);
 #endif
 }
