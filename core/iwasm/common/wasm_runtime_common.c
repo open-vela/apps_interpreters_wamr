@@ -769,14 +769,6 @@ wasm_runtime_full_init_internal(RuntimeInitArgs *init_args)
         }
 #endif
 
-    if (init_args->n_native_symbols > 0
-        && !wasm_runtime_register_natives(init_args->native_module_name,
-                                          init_args->native_symbols,
-                                          init_args->n_native_symbols)) {
-        wasm_runtime_destroy();
-        return false;
-    }
-
 #if WASM_ENABLE_THREAD_MGR != 0
     wasm_cluster_set_max_thread_num(init_args->max_thread_num);
 #endif
@@ -798,7 +790,17 @@ wasm_runtime_full_init(RuntimeInitArgs *init_args)
         ret = wasm_runtime_full_init_internal(init_args);
     }
     if (ret) {
-        runtime_ref_count++;
+        /* Register native symbols for this call */
+
+        if (init_args->n_native_symbols > 0
+            && !wasm_runtime_register_natives(init_args->native_module_name,
+                                              init_args->native_symbols,
+                                              init_args->n_native_symbols)) {
+            ret = false;
+        }
+        else {
+            runtime_ref_count++;
+        }
     }
 
     /* FIXME: Implement real multi-instance support instead of

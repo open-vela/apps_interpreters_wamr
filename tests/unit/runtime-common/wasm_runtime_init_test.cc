@@ -160,3 +160,39 @@ TEST_F(wasm_runtime_init_test_suite, wasm_runtime_full_init)
     init_args.mem_alloc_option.pool.heap_size = 0;
     EXPECT_EQ(false, wasm_runtime_full_init(&init_args));
 }
+
+TEST_F(wasm_runtime_init_test_suite, wasm_runtime_full_init_multiple_native_symbols)
+{
+    RuntimeInitArgs init_args;
+
+    // First call with native symbols
+    memset(&init_args, 0, sizeof(RuntimeInitArgs));
+    init_args.mem_alloc_type = Alloc_With_Pool;
+    init_args.mem_alloc_option.pool.heap_buf = global_heap_buf;
+    init_args.mem_alloc_option.pool.heap_size = sizeof(global_heap_buf);
+
+    // Create dummy native symbols for testing
+    NativeSymbol test_symbols_1[] = {
+        {"test_func_1", nullptr, "(i)i", nullptr}
+    };
+    NativeSymbol test_symbols_2[] = {
+        {"test_func_2", nullptr, "(i)i", nullptr}
+    };
+
+    init_args.native_module_name = "test_module_1";
+    init_args.native_symbols = test_symbols_1;
+    init_args.n_native_symbols = 1;
+
+    EXPECT_EQ(true, wasm_runtime_full_init(&init_args));
+
+    // Second call with different native symbols - should succeed with the fix
+    init_args.native_module_name = "test_module_2";
+    init_args.native_symbols = test_symbols_2;
+    init_args.n_native_symbols = 1;
+
+    EXPECT_EQ(true, wasm_runtime_full_init(&init_args)); // Should succeed now
+
+    // Cleanup
+    wasm_runtime_destroy();
+    wasm_runtime_destroy();
+}
