@@ -903,7 +903,7 @@ main(int argc, char *argv[])
     wasm_file_size = sb.st_size;
 
     if ((wasm_file_buf = (uint8 *)mmap(
-             NULL, sb.st_size, MMAP_PROT_WRITE | PROT_READ | MMAP_PROT_EXEC,
+             NULL, sb.st_size, PROT_READ | MMAP_PROT_EXEC,
              MMAP_MAP_32BIT, fd, 0))
         == MAP_FAILED) {
 
